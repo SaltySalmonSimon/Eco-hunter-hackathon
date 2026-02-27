@@ -34,7 +34,7 @@ export default function LoginScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.headerTitle}>Eco-hunter</Text>
+      <Text style={styles.headerTitle}>EcoHunter 🦖</Text>
       
       <TextInput 
         style={styles.input} 

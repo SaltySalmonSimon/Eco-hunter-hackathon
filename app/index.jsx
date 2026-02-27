@@ -312,7 +312,7 @@ export default function App() {
             {isScanning ? (
               <View style={styles.scanningOverlay}>
                  <ActivityIndicator size="large" color="#00ff00" />
-                 <Text style={styles.scanningText}>Analyzing...</Text>
+                 <Text style={styles.scanningText}>Google AI analyzing...</Text>
               </View>
             ) : (
               <TouchableOpacity style={styles.captureButton} onPress={takePictureAndScan}>
