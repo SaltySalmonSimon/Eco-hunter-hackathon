@@ -1,242 +1,270 @@
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { useEffect, useRef, useState } from 'react'; // Added useEffect
-import { ActivityIndicator, FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { db } from '../firebase-config';
-import { collection, addDoc, onSnapshot, query, where } from 'firebase/firestore';import { GoogleGenerativeAI } from '@google/generative-ai';
 import { useRouter } from 'expo-router';
 import { onAuthStateChanged } from 'firebase/auth';
-import { auth } from '../firebase-config';
+import { addDoc, collection, onSnapshot, query, where } from 'firebase/firestore';
+import { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { auth, db } from '../firebase-config';
 
-const genAI = new GoogleGenerativeAI(process.env.EXPO_PUBLIC_GEMINI_API_KEY);
-
-// It is safe to keep constants outside the component
-const REGION_ANIMALS = [
-  { id: '1', name: 'Plantain Squirrel', category: 'Mammal', imageUri: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1c/Plantain_Squirrel_%28Callosciurus_notatus%29.jpg/640px-Plantain_Squirrel_%28Callosciurus_notatus%29.jpg' },
-  { id: '2', name: 'Macaque', category: 'Mammal', imageUri: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Macaca_fascicularis_-_01.jpg/640px-Macaca_fascicularis_-_01.jpg' },
-  { id: '3', name: 'Monitor Lizard', category: 'Reptile', imageUri: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/fa/Varanus_salvator_-_01.jpg/640px-Varanus_salvator_-_01.jpg' },
-  { id: '4', name: 'Kingfisher', category: 'Bird', imageUri: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/07/White-throated_Kingfisher.jpg/640px-White-throated_Kingfisher.jpg' },
+// --- THE MASTER ECO-DEX DATABASE (50 ANIMALS) ---
+const MASTER_ECO_DEX = [
+  // MAMMALS
+  { id: 1, name: 'Dog', category: 'Mammal', imageUri: 'https://img.icons8.com/color/96/dog.png' },
+  { id: 2, name: 'Cat', category: 'Mammal', imageUri: 'https://img.icons8.com/color/96/cat.png' },
+  { id: 3, name: 'Squirrel', category: 'Mammal', imageUri: 'https://img.icons8.com/color/96/squirrel.png' },
+  { id: 4, name: 'Monkey', category: 'Mammal', imageUri: 'https://img.icons8.com/?size=100&id=uxjqXCXF5TlO&format=png&color=000000' },
+  { id: 5, name: 'Rat', category: 'Mammal', imageUri: 'https://img.icons8.com/?size=100&id=vzz0xyvO-UyC&format=png&color=000000' },
+  { id: 6, name: 'Bat', category: 'Mammal', imageUri: 'https://img.icons8.com/color/96/bat.png' },
+  { id: 7, name: 'Cow', category: 'Mammal', imageUri: 'https://img.icons8.com/color/96/cow.png' },
+  { id: 8, name: 'Horse', category: 'Mammal', imageUri: 'https://img.icons8.com/color/96/horse.png' },
+  { id: 9, name: 'Pig', category: 'Mammal', imageUri: 'https://img.icons8.com/color/96/pig.png' },
+  { id: 10, name: 'Goat', category: 'Mammal', imageUri: 'https://img.icons8.com/color/96/goat.png' },
+  { id: 11, name: 'Sheep', category: 'Mammal', imageUri: 'https://img.icons8.com/color/96/sheep.png' },
+  { id: 12, name: 'Deer', category: 'Mammal', imageUri: 'https://img.icons8.com/color/96/deer.png' },
+  { id: 13, name: 'Bear', category: 'Mammal', imageUri: 'https://img.icons8.com/color/96/bear.png' },
+  { id: 14, name: 'Elephant', category: 'Mammal', imageUri: 'https://img.icons8.com/color/96/elephant.png' },
+  { id: 15, name: 'Tiger', category: 'Mammal', imageUri: 'https://img.icons8.com/?size=100&id=I5OML1bajbP2&format=png&color=000000' },
+  { id: 16, name: 'Lion', category: 'Mammal', imageUri: 'https://img.icons8.com/color/96/lion.png' },
+  { id: 17, name: 'Rabbit', category: 'Mammal', imageUri: 'https://img.icons8.com/color/96/rabbit.png' },
+  // AVIANS
+  { id: 18, name: 'Bird', category: 'Avian', imageUri: 'https://img.icons8.com/color/96/bird.png' },
+  { id: 19, name: 'Chicken', category: 'Avian', imageUri: 'https://img.icons8.com/color/96/chicken.png' },
+  { id: 20, name: 'Duck', category: 'Avian', imageUri: 'https://img.icons8.com/color/96/duck.png' },
+  { id: 21, name: 'Owl', category: 'Avian', imageUri: 'https://img.icons8.com/color/96/owl.png' },
+  { id: 22, name: 'Eagle', category: 'Avian', imageUri: 'https://img.icons8.com/?size=100&id=yb7r2rdbifEu&format=png&color=000000' },
+  { id: 23, name: 'Parrot', category: 'Avian', imageUri: 'https://img.icons8.com/color/96/parrot.png' },
+  { id: 24, name: 'Penguin', category: 'Avian', imageUri: 'https://img.icons8.com/?size=100&id=GLNXrevIGCZO&format=png&color=000000' },
+  { id: 25, name: 'Ostrich', category: 'Avian', imageUri: 'https://img.icons8.com/color/96/ostrich.png' },
+  // REPTILES
+  { id: 26, name: 'Lizard', category: 'Reptile', imageUri: 'https://img.icons8.com/color/96/lizard.png' },
+  { id: 27, name: 'Snake', category: 'Reptile', imageUri: 'https://img.icons8.com/color/96/snake.png' },
+  { id: 28, name: 'Turtle', category: 'Reptile', imageUri: 'https://img.icons8.com/color/96/turtle.png' },
+  { id: 29, name: 'Crocodile', category: 'Reptile', imageUri: 'https://img.icons8.com/?size=100&id=Rs7WtznR24Af&format=png&color=000000' },
+  // AMPHIBIANS
+  { id: 30, name: 'Frog', category: 'Amphibian', imageUri: 'https://img.icons8.com/color/96/frog.png' },
+  { id: 31, name: 'Salamander', category: 'Amphibian', imageUri: 'https://img.icons8.com/?size=100&id=95597&format=png&color=000000' },
+  // INSECTS
+  { id: 32, name: 'Butterfly', category: 'Insect', imageUri: 'https://img.icons8.com/color/96/butterfly.png' },
+  { id: 33, name: 'Spider', category: 'Insect', imageUri: 'https://img.icons8.com/color/96/spider.png' },
+  { id: 34, name: 'Ant', category: 'Insect', imageUri: 'https://img.icons8.com/color/96/ant.png' },
+  { id: 35, name: 'Bee', category: 'Insect', imageUri: 'https://img.icons8.com/color/96/bee.png' },
+  { id: 36, name: 'Beetle', category: 'Insect', imageUri: 'https://img.icons8.com/?size=100&id=dUffInH7HEmp&format=png&color=000000' },
+  { id: 37, name: 'Fly', category: 'Insect', imageUri: 'https://img.icons8.com/color/96/fly.png' },
+  { id: 38, name: 'Mosquito', category: 'Insect', imageUri: 'https://img.icons8.com/color/96/mosquito.png' },
+  { id: 39, name: 'Grasshopper', category: 'Insect', imageUri: 'https://img.icons8.com/color/96/grasshopper.png' },
+  { id: 40, name: 'Worm', category: 'Insect', imageUri: 'https://img.icons8.com/?size=100&id=H1hwHFVrRITm&format=png&color=000000' },
+  { id: 41, name: 'Snail', category: 'Insect', imageUri: 'https://img.icons8.com/color/96/snail.png' },
+  { id: 42, name: 'Centipede', category: 'Insect', imageUri: 'https://img.icons8.com/?size=100&id=GLhKyCsuhb2E&format=png&color=000000' },
+  // AQUATIC
+  { id: 43, name: 'Fish', category: 'Aquatic', imageUri: 'https://img.icons8.com/color/96/fish.png' },
+  { id: 44, name: 'Shark', category: 'Aquatic', imageUri: 'https://img.icons8.com/color/96/shark.png' },
+  { id: 45, name: 'Dolphin', category: 'Aquatic', imageUri: 'https://img.icons8.com/color/96/dolphin.png' },
+  { id: 46, name: 'Whale', category: 'Aquatic', imageUri: 'https://img.icons8.com/color/96/whale.png' },
+  { id: 47, name: 'Crab', category: 'Aquatic', imageUri: 'https://img.icons8.com/color/96/crab.png' },
+  { id: 48, name: 'Shrimp', category: 'Aquatic', imageUri: 'https://img.icons8.com/?size=100&id=rm2ULHn0Cvt9&format=png&color=000000' },
+  { id: 49, name: 'Octopus', category: 'Aquatic', imageUri: 'https://img.icons8.com/color/96/octopus.png' },
+  { id: 50, name: 'Jellyfish', category: 'Aquatic', imageUri: 'https://img.icons8.com/color/96/jellyfish.png' }
 ];
 
-
 export default function App() {
-  const router = useRouter(); // 1. Initialize the router
+  const router = useRouter();
   const [user, setUser] = useState(null);
   const [permission, requestPermission] = useCameraPermissions();
-  const [activeTab, setActiveTab] = useState('camera');
+  const [activeTab, setActiveTab] = useState('camera'); // 'camera' or 'ecodex'
   
-  // Fixed: Now references REGION_ANIMALS
-  const [database, setDatabase] = useState(REGION_ANIMALS); 
+  const [database, setDatabase] = useState(MASTER_ECO_DEX); 
   const [isScanning, setIsScanning] = useState(false);
   const cameraRef = useRef(null);
-  
-  
-  // 2. The Bouncer: Checks if the user is logged in
-  // This hook constantly listens to Firebase for YOUR new captures!
+
+  // 1. Authenticate the User
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       if (!currentUser) {
-        // Not logged in? Kick them out
         router.replace('/login');
       } else {
-        // Logged in? Save their data so addDoc and Pokédex can use it!
         setUser(currentUser); 
       }
     });
     return () => unsubscribe();
   }, []);
 
-  // Fixed: Moved the listener INSIDE the component
+  // 2. Fetch User's Captured Animals from Firebase
   useEffect(() => {
     if (!user) return; 
 
     const q = query(collection(db, "capturedAnimals"), where("userId", "==", user.uid));
-
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      // 1. Get ALL documents this user has captured
       const capturedDocs = snapshot.docs.map(doc => doc.data());
       const capturedNames = capturedDocs.map(doc => doc.name.toLowerCase());
       
-      // 2. Unlock the default hardcoded animals if they found them
-      const updatedDefaults = REGION_ANIMALS.map(animal => ({
+      // Unlock animals in the UI if the user found them
+      const updatedDex = MASTER_ECO_DEX.map(animal => ({
         ...animal,
         isUnlocked: capturedNames.includes(animal.name.toLowerCase())
       }));
 
-      // 3. Find brand NEW animals that aren't in the default list
-      const defaultNames = REGION_ANIMALS.map(a => a.name.toLowerCase());
-      const newDiscoveries = capturedDocs
-        // Filter out animals that are already in the default list
-        .filter(doc => !defaultNames.includes(doc.name.toLowerCase()))
-        // Filter out duplicates (if they scanned the same new bird twice)
-        .filter((value, index, self) => index === self.findIndex((t) => t.name.toLowerCase() === value.name.toLowerCase()))
-        // Format them to look exactly like our standard Pokedex cards
-        .map((doc, index) => ({
-          id: `dynamic-${index}`,
-          name: doc.name,
-          category: doc.category,
-          isUnlocked: true,
-          // Using a neat generic icon for dynamically discovered animals
-          imageUri: 'https://cdn-icons-png.flaticon.com/512/2094/2094458.png' 
-        }));
-
-      // 4. Combine the default animals and the new discoveries into one massive Dex!
-      setDatabase([...updatedDefaults, ...newDiscoveries]);
+      setDatabase(updatedDex);
     });
 
     return () => unsubscribe(); 
   }, [user]);
 
-
   // --- GEMINI AI INTEGRATION ---
   const analyzeImageWithGemini = async (base64Image) => {
     try {
+      const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
+      if (!apiKey) {
+        alert("API Key is missing! Check your .env file.");
+        return null;
+      }
+
+      const genAI = new GoogleGenerativeAI(apiKey);
       const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-      const prompt = `You are an elite wildlife biologist in Malaysia. 
-      Carefully analyze this smartphone photo. The image might be slightly blurry, shadowed, or taken from a distance.
-      Identify the primary animal in the frame. 
+      // The brain: Only searches for these exact 50 words
+      const prompt = `You are a strict biodiversity app scanner.
+      Identify the primary animal in this photo. 
       
-      CRITICAL RULE: If the animal even closely resembles one of these target species (Plantain Squirrel, Macaque, Monitor Lizard, Kingfisher), you MUST use that exact name.
-      If it is a completely different animal, identify it specifically (e.g., "Stray Cat", "Pigeon").
-      If there is absolutely no animal in the photo, set the name to "None".
+      CRITICAL RULE: You MUST classify the animal using ONLY one of the following exact 50 words:
+      Dog, Cat, Squirrel, Monkey, Rat, Bat, Cow, Horse, Pig, Goat, Sheep, Deer, Bear, Elephant, Tiger, Lion, Rabbit, Bird, Chicken, Duck, Owl, Eagle, Parrot, Penguin, Ostrich, Lizard, Snake, Turtle, Crocodile, Frog, Salamander, Butterfly, Spider, Ant, Bee, Beetle, Fly, Mosquito, Grasshopper, Worm, Snail, Centipede, Fish, Shark, Dolphin, Whale, Crab, Shrimp, Octopus, Jellyfish.
+      
+      Example: If it's a Poodle, output "Dog". If it's a Hornbill, output "Bird". If it's a Python, output "Snake".
+      
+      If the animal does not fit into any of these 50 categories, output "Unknown".
+      If there is no animal in the photo, output "None".
 
       Return the result STRICTLY as a JSON object with three keys: 
-      'name' (string), 
-      'category' (string: Mammal, Reptile, Bird, Insect, or Unknown), 
-      'fun_fact' (string: a short, fascinating 1-sentence ecological fact about this animal). 
-      Output ONLY valid JSON. Do not include markdown formatting like \`\`\`json.`;
+      'name' (string: the exact generic name from the list above), 
+      'category' (string: Mammal, Reptile, Avian, Insect, Amphibian, Aquatic, or Unknown), 
+      'fun_fact' (string: a short 1-sentence fun fact about the animal). 
+      Output ONLY valid JSON. No markdown tags.`;
 
       const imagePart = {
-        inlineData: {
-          data: base64Image,
-          mimeType: "image/jpeg"
-        }
+        inlineData: { data: base64Image, mimeType: "image/jpeg" }
       };
 
-      // Send the image and prompt to Google's servers
       const result = await model.generateContent([prompt, imagePart]);
       const responseText = result.response.text();
-      
-      // Clean up the text to ensure we only parse valid JSON
       const jsonString = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
       return JSON.parse(jsonString);
 
     } catch (error) {
-      console.error("Gemini API Error:", error);
+      console.error("Gemini Error:", error);
       return null;
     }
   };
-
 
   // --- CORE MECHANIC: CAPTURE & SCAN ---
   const takePictureAndScan = async () => {
     if (cameraRef.current) {
       setIsScanning(true);
-      
       try {
-        // 1. Take the picture
         const photo = await cameraRef.current.takePictureAsync({ quality: 0.8, base64: true });
-        
-        // 2. Send to Gemini
         const aiResult = await analyzeImageWithGemini(photo.base64);
         
-        // 3. Handle the Result & Save to Firebase
-        if (aiResult && aiResult.name && aiResult.name !== 'None' && aiResult.name.toLowerCase() !== 'unknown') {
+        if (aiResult && aiResult.name && aiResult.name !== 'None') {
+          const genericName = aiResult.name.trim();
           
-          const animalName = aiResult.name;
-          
-          // Check if they already caught it by looking at our local 'database' state
-          const alreadyCaught = database.some(a => a.name.toLowerCase() === animalName.toLowerCase() && a.isUnlocked);
+          if (genericName.toLowerCase() === 'unknown') {
+             alert("Detected an animal, but it's not in the official Eco-Dex yet! Try scanning something else.");
+             setIsScanning(false);
+             return;
+          }
+
+          // Check if already caught
+          const alreadyCaught = database.some(a => a.name.toLowerCase() === genericName.toLowerCase() && a.isUnlocked);
 
           if (alreadyCaught) {
-            // REPEATED ANIMAL: Just show the fact, no points, no database save
-            alert(`You already caught the ${animalName}!\n\n💡 Fun Fact: ${aiResult.fun_fact}`);
-          
+            alert(`You already unlocked #${genericName}!\n\n💡 Fun Fact: ${aiResult.fun_fact}`);
           } else {
-            // NEW ANIMAL: Calculate points
-            // Is it in our default hardcoded list? If yes = 5 pts. If no (dynamic) = 10 pts.
-            const isDefaultAnimal = REGION_ANIMALS.some(a => a.name.toLowerCase() === animalName.toLowerCase());
-            const pointsToAward = isDefaultAnimal ? 5 : 10;
-
-            alert(`🎉 New Discovery: ${animalName}!\n⭐ +${pointsToAward} Points!\n\n💡 Fun Fact: ${aiResult.fun_fact}`);
-            
+            alert(`🎉 New Eco-Dex Entry Unlocked: ${genericName}!\n⭐ +10 Points!\n\n💡 Fun Fact: ${aiResult.fun_fact}`);
             try {
-              // Save to Firebase WITH the new points field
               await addDoc(collection(db, "capturedAnimals"), {
-                name: animalName,
+                name: genericName,
                 category: aiResult.category,
                 funFact: aiResult.fun_fact || "No fact available.",
-                points: pointsToAward, // Save the score!
+                points: 10,
                 timestamp: new Date(),
                 userId: user.uid
               });
-              console.log(`Saved ${animalName} for ${pointsToAward} points!`);
             } catch (e) {
-              console.error("Error saving to Firebase: ", e);
-              alert("Failed to save to database.");
+              console.error("Save Error: ", e);
             }
           }
-
         } else {
-          alert("Could not clearly identify an animal. Try getting a better angle or lighting!");
+          alert("No animal detected. Try getting closer!");
         }
       } catch (error) {
-        alert("Something went wrong with the scan.");
+        alert("Scan failed. Check your internet connection.");
       } finally {
         setIsScanning(false);
       }
     }
   };
 
-  // --- POKEDEX UI RENDERER ---
-  const renderAnimalCard = ({ item }) => (
-    <View style={styles.card}>
-      <View style={styles.imageContainer}>
-        {item.isUnlocked ? (
-          <Image source={{ uri: item.imageUri }} style={styles.animalImage} />
-        ) : (
-          // Silhouette Mode
-          <View style={styles.silhouetteContainer}>
-             <Image source={{ uri: item.imageUri }} style={[styles.animalImage, styles.silhouette]} />
-             <Text style={styles.questionMark}>?</Text>
-          </View>
-        )}
-      </View>
-      <Text style={styles.animalName}>
-        {item.isUnlocked ? item.name : 'Unknown Species'}
-      </Text>
-      <Text style={styles.animalCategory}>{item.category}</Text>
-    </View>
-  );
+  // --- UI RENDERER ---
+  const renderAnimalCard = ({ item }) => {
+    const formattedId = `#${String(item.id).padStart(3, '0')}`;
 
-  // Calculate total score (includes a fallback just in case old DB entries don't have the points field yet)
-  const totalScore = database
-    .filter(animal => animal.isUnlocked)
-    .reduce((sum, animal) => {
-      const fallbackPoints = REGION_ANIMALS.some(r => r.name.toLowerCase() === animal.name.toLowerCase()) ? 5 : 10;
-      return sum + (animal.points || fallbackPoints);
-    }, 0);
+    return (
+      <View style={styles.card}>
+        <Text style={styles.idNumber}>{formattedId}</Text>
+        <View style={styles.imageContainer}>
+          {item.isUnlocked ? (
+            <Image source={{ uri: item.imageUri }} style={styles.animalImage} />
+          ) : (
+            <View style={styles.silhouetteContainer}>
+               <Image source={{ uri: item.imageUri }} style={[styles.animalImage, styles.silhouette]} />
+               <Text style={styles.questionMark}>?</Text>
+            </View>
+          )}
+        </View>
+        
+        {/* CHANGED: Now it always shows the name! */}
+        <Text style={styles.animalName}>
+          {item.name}
+        </Text>
+        
+        {/* CHANGED: Now it always shows the category too! */}
+        <Text style={styles.animalCategory}>
+          {item.category}
+        </Text>
+        
+      </View>
+    );
+  };
+
+  // Permissions Check
+  if (!permission) return <View />;
+  if (!permission.granted) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.permissionText}>We need your permission to use the camera</Text>
+        <TouchableOpacity style={styles.button} onPress={requestPermission}>
+          <Text style={styles.buttonText}>Grant Permission</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  const totalScore = database.filter(animal => animal.isUnlocked).length * 10;
 
   return (
     <View style={styles.container}>
-      {/* HEADER */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Eco-Hunter Dex</Text>
-        <Text style={styles.scoreText}>⭐ Total Score: {totalScore}</Text>
+        <Text style={styles.headerTitle}>Eco-Dex</Text>
+        <Text style={styles.scoreText}>⭐ Score: {totalScore}</Text>
       </View>
       
-      {/* MAIN CONTENT AREA */}
       {activeTab === 'camera' ? (
         <View style={styles.cameraContainer}>
-          {/* 1. CameraView is now self-closing and takes up the whole background */}
           <CameraView style={StyleSheet.absoluteFillObject} facing="back" ref={cameraRef} />
-          
-          {/* 2. UI is OUTSIDE the CameraView, layered on top using absolute positioning */}
           <View style={styles.cameraUI}>
             {isScanning ? (
               <View style={styles.scanningOverlay}>
                  <ActivityIndicator size="large" color="#00ff00" />
-                 <Text style={styles.scanningText}>Google AI Scanning...</Text>
+                 <Text style={styles.scanningText}>Analyzing...</Text>
               </View>
             ) : (
               <TouchableOpacity style={styles.captureButton} onPress={takePictureAndScan}>
@@ -249,19 +277,18 @@ export default function App() {
         <FlatList
           data={database}
           renderItem={renderAnimalCard}
-          keyExtractor={item => item.id}
+          keyExtractor={item => item.id.toString()}
           numColumns={2}
           contentContainerStyle={styles.pokedexList}
         />
       )}
 
-      {/* BOTTOM NAVIGATION */}
       <View style={styles.navBar}>
         <TouchableOpacity style={[styles.navItem, activeTab === 'camera' && styles.navItemActive]} onPress={() => setActiveTab('camera')}>
           <Text style={styles.navText}>Scanner</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.navItem, activeTab === 'pokedex' && styles.navItemActive]} onPress={() => setActiveTab('pokedex')}>
-          <Text style={styles.navText}>Pokédex ({database.filter(a => a.isUnlocked).length}/{database.length})</Text>
+        <TouchableOpacity style={[styles.navItem, activeTab === 'ecodex' && styles.navItemActive]} onPress={() => setActiveTab('ecodex')}>
+          <Text style={styles.navText}>Eco-Dex ({database.filter(a => a.isUnlocked).length}/{database.length})</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -271,40 +298,31 @@ export default function App() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#1a1a1a' },
   header: { paddingTop: 60, paddingBottom: 20, backgroundColor: '#2c3e50', alignItems: 'center' },
-  headerTitle: { color: 'white', fontSize: 24, fontWeight: 'bold' },
-  scoreText: { color: '#f1c40f', fontSize: 18, fontWeight: 'bold', marginTop: 5 },
-  text: { color: 'white', textAlign: 'center', marginTop: 50 },
+  headerTitle: { color: '#27ae60', fontSize: 26, fontWeight: '900', letterSpacing: 1 },
+  scoreText: { color: '#f1c40f', fontSize: 16, fontWeight: 'bold', marginTop: 5 },
+  permissionText: { color: 'white', textAlign: 'center', marginTop: 150, fontSize: 18, paddingHorizontal: 20 },
   button: { backgroundColor: '#27ae60', padding: 15, margin: 20, borderRadius: 10, alignItems: 'center' },
   buttonText: { color: 'white', fontWeight: 'bold' },
   
-  // Camera Styles
   cameraContainer: { flex: 1, position: 'relative' },
-  cameraUI: { 
-    ...StyleSheet.absoluteFillObject, // This is the magic line that layers it on top!
-    backgroundColor: 'transparent', 
-    justifyContent: 'flex-end', 
-    alignItems: 'center', 
-    paddingBottom: 40,
-    zIndex: 10 // Ensures buttons are clickable over the camera
-  },
-  captureButton: { width: 80, height: 80, borderRadius: 40, backgroundColor: 'rgba(255, 255, 255, 0.3)', justifyContent: 'center', alignItems: 'center' },
+  cameraUI: { ...StyleSheet.absoluteFillObject, backgroundColor: 'transparent', justifyContent: 'flex-end', alignItems: 'center', paddingBottom: 40, zIndex: 10 },
+  captureButton: { width: 80, height: 80, borderRadius: 40, backgroundColor: 'rgba(255, 255, 255, 0.3)', justifyContent: 'center', alignItems: 'center', borderWidth: 3, borderColor: '#27ae60' },
   captureInner: { width: 60, height: 60, borderRadius: 30, backgroundColor: 'white' },
-  scanningOverlay: { backgroundColor: 'rgba(0,0,0,0.7)', padding: 20, borderRadius: 15, alignItems: 'center' },
-  scanningText: { color: '#00ff00', marginTop: 10, fontWeight: 'bold' },
+  scanningOverlay: { backgroundColor: 'rgba(0,0,0,0.8)', padding: 20, borderRadius: 15, alignItems: 'center' },
+  scanningText: { color: '#00ff00', marginTop: 10, fontWeight: 'bold', letterSpacing: 1 },
 
-  // Pokedex Styles
   pokedexList: { padding: 10 },
-  card: { flex: 1, backgroundColor: '#2c3e50', margin: 5, borderRadius: 10, padding: 10, alignItems: 'center' },
-  imageContainer: { width: 100, height: 100, borderRadius: 50, overflow: 'hidden', backgroundColor: '#34495e', justifyContent: 'center', alignItems: 'center', marginBottom: 10 },
-  animalImage: { width: 100, height: 100 },
-  silhouetteContainer: { width: 100, height: 100, justifyContent: 'center', alignItems: 'center', backgroundColor: '#34495e' },
-  silhouette: { tintColor: '#1a1a1a', opacity: 0.8 }, // This creates the black silhouette effect!
-  questionMark: { position: 'absolute', color: 'rgba(255,255,255,0.3)', fontSize: 40, fontWeight: 'bold' },
+  card: { flex: 1, backgroundColor: '#2c3e50', margin: 5, borderRadius: 12, padding: 10, alignItems: 'center', elevation: 5 },
+  idNumber: { color: '#95a5a6', fontSize: 12, fontWeight: 'bold', alignSelf: 'flex-start', marginBottom: 5 },
+  imageContainer: { width: 80, height: 80, borderRadius: 40, overflow: 'hidden', backgroundColor: '#ecf0f1', justifyContent: 'center', alignItems: 'center', marginBottom: 10 },
+  animalImage: { width: 50, height: 50 },
+  silhouetteContainer: { width: 80, height: 80, justifyContent: 'center', alignItems: 'center', backgroundColor: '#7f8c8d' },
+  silhouette: { tintColor: '#111', opacity: 0.9 },
+  questionMark: { position: 'absolute', color: 'rgba(255,255,255,0.4)', fontSize: 35, fontWeight: 'bold' },
   animalName: { color: 'white', fontWeight: 'bold', fontSize: 16, textAlign: 'center' },
-  animalCategory: { color: '#bdc3c7', fontSize: 12, marginTop: 5 },
+  animalCategory: { color: '#bdc3c7', fontSize: 11, marginTop: 2, textTransform: 'uppercase' },
 
-  // Navigation Styles
-  navBar: { flexDirection: 'row', backgroundColor: '#2c3e50', paddingBottom: 30, paddingTop: 10 },
+  navBar: { flexDirection: 'row', backgroundColor: '#2c3e50', paddingBottom: 30, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#34495e' },
   navItem: { flex: 1, alignItems: 'center', paddingVertical: 10 },
   navItemActive: { borderBottomWidth: 3, borderBottomColor: '#27ae60' },
   navText: { color: 'white', fontWeight: 'bold' }
