@@ -2,8 +2,10 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useEffect, useRef, useState } from 'react'; // Added useEffect
 import { ActivityIndicator, FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { db } from '../firebase-config';
-import { collection, addDoc, onSnapshot } from 'firebase/firestore'; // Added Firebase imports
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { collection, addDoc, onSnapshot, query, where } from 'firebase/firestore';import { GoogleGenerativeAI } from '@google/generative-ai';
+import { useRouter } from 'expo-router';
+import { onAuthStateChanged } from 'firebase/auth';
+import { auth } from '../firebase-config';
 
 const genAI = new GoogleGenerativeAI(process.env.EXPO_PUBLIC_GEMINI_API_KEY);
 
@@ -17,6 +19,8 @@ const REGION_ANIMALS = [
 
 
 export default function App() {
+  const router = useRouter(); // 1. Initialize the router
+  const [user, setUser] = useState(null);
   const [permission, requestPermission] = useCameraPermissions();
   const [activeTab, setActiveTab] = useState('camera');
   
@@ -24,20 +28,63 @@ export default function App() {
   const [database, setDatabase] = useState(REGION_ANIMALS); 
   const [isScanning, setIsScanning] = useState(false);
   const cameraRef = useRef(null);
+  
+  
+  // 2. The Bouncer: Checks if the user is logged in
+  // This hook constantly listens to Firebase for YOUR new captures!
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      if (!currentUser) {
+        // Not logged in? Kick them out
+        router.replace('/login');
+      } else {
+        // Logged in? Save their data so addDoc and Pokédex can use it!
+        setUser(currentUser); 
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
   // Fixed: Moved the listener INSIDE the component
   useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, "capturedAnimals"), (snapshot) => {
-      const capturedNames = snapshot.docs.map(doc => doc.data().name.toLowerCase());
+    if (!user) return; 
+
+    const q = query(collection(db, "capturedAnimals"), where("userId", "==", user.uid));
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      // 1. Get ALL documents this user has captured
+      const capturedDocs = snapshot.docs.map(doc => doc.data());
+      const capturedNames = capturedDocs.map(doc => doc.name.toLowerCase());
       
-      setDatabase(REGION_ANIMALS.map(animal => ({
+      // 2. Unlock the default hardcoded animals if they found them
+      const updatedDefaults = REGION_ANIMALS.map(animal => ({
         ...animal,
         isUnlocked: capturedNames.includes(animal.name.toLowerCase())
-      })));
+      }));
+
+      // 3. Find brand NEW animals that aren't in the default list
+      const defaultNames = REGION_ANIMALS.map(a => a.name.toLowerCase());
+      const newDiscoveries = capturedDocs
+        // Filter out animals that are already in the default list
+        .filter(doc => !defaultNames.includes(doc.name.toLowerCase()))
+        // Filter out duplicates (if they scanned the same new bird twice)
+        .filter((value, index, self) => index === self.findIndex((t) => t.name.toLowerCase() === value.name.toLowerCase()))
+        // Format them to look exactly like our standard Pokedex cards
+        .map((doc, index) => ({
+          id: `dynamic-${index}`,
+          name: doc.name,
+          category: doc.category,
+          isUnlocked: true,
+          // Using a neat generic icon for dynamically discovered animals
+          imageUri: 'https://cdn-icons-png.flaticon.com/512/2094/2094458.png' 
+        }));
+
+      // 4. Combine the default animals and the new discoveries into one massive Dex!
+      setDatabase([...updatedDefaults, ...newDiscoveries]);
     });
 
     return () => unsubscribe(); 
-  }, []);
+  }, [user]);
 
 
   // --- GEMINI AI INTEGRATION ---
@@ -84,24 +131,26 @@ export default function App() {
         const aiResult = await analyzeImageWithGemini(photo.base64);
         
         // 3. Handle the Result & Save to Firebase
-        if (aiResult && aiResult.name) {
-          alert(`Google AI Identified: ${aiResult.name}!`);
+        // 3. Handle the Result & Save to Firebase
+        // Make sure it found a name, and that the name isn't just "Unknown"
+        if (aiResult && aiResult.name && aiResult.name.toLowerCase() !== 'unknown') {
+          alert(`New Discovery! Google AI Identified: ${aiResult.name}!`);
           
           try {
-            // Push the captured animal to the live database
             await addDoc(collection(db, "capturedAnimals"), {
               name: aiResult.name,
               category: aiResult.category,
-              timestamp: new Date()
+              timestamp: new Date(),
+              userId: user.uid
             });
-            console.log("Successfully saved to Firebase!");
+            console.log("Successfully saved dynamic animal to Firebase!");
           } catch (e) {
             console.error("Error saving to Firebase: ", e);
             alert("Failed to save to database.");
           }
 
         } else {
-          alert("Could not identify an animal in this photo. Try getting closer!");
+          alert("Could not clearly identify an animal. Try getting a better angle or lighting!");
         }
       } catch (error) {
         alert("Something went wrong with the scan.");

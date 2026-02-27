@@ -1,6 +1,7 @@
 // Import the functions you need from the SDKs you need
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
+import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBM2ElQfZYO5aV4Iyki3f0MbMa-N9hlGCw",
@@ -17,3 +18,4 @@ const app = initializeApp(firebaseConfig);
 
 // 4. Initialize Firestore and EXPORT it so index.jsx can see it
 export const db = getFirestore(app);
+export const auth = getAuth(app);
