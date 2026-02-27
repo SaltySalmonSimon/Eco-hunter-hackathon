@@ -1,7 +1,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useRouter } from 'expo-router';
-import { onAuthStateChange   } from 'firebase/auth';
+import { onAuthStateChanged } from 'firebase/auth';
 import { addDoc, collection, onSnapshot, query } from 'firebase/firestore';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -71,16 +71,19 @@ export default function App() {
   const router = useRouter();
   const [user, setUser] = useState(null);
   const [permission, requestPermission] = useCameraPermissions();
-  const [activeTab, setActiveTab] = useState('camera'); // 'camera' or 'ecodex'
+  const [activeTab, setActiveTab] = useState('camera'); 
   
   const [database, setDatabase] = useState(MASTER_ECO_DEX); 
   const [isScanning, setIsScanning] = useState(false);
   const cameraRef = useRef(null);
 
-  // NEW STATE: Tracks which animal is currently open in the Modal
   const [selectedAnimal, setSelectedAnimal] = useState(null);
+  
+  // NEW: Daily Mission State
+  const [missionProgress, setMissionProgress] = useState({ avian: 0, insect: 0 });
+  const [missionCompleted, setMissionCompleted] = useState(false);
 
-  // 1. Authenticate the User
+  // 1. Authenticate User
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       if (!currentUser) {
@@ -92,7 +95,7 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // 2. Fetch ALL Captured Animals (Community Tally + Personal Unlocks)
+  // 2. Data Compiler (The Brain that builds the Inventory)
   useEffect(() => {
     if (!user) return; 
 
@@ -101,47 +104,62 @@ export default function App() {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const allDocs = snapshot.docs.map(doc => doc.data());
       
-      // A. Filter out just YOUR captures to know what to unlock
+      // Filter out just YOUR captures
       const myCaptures = allDocs.filter(doc => doc.userId === user.uid);
-      const myCapturedNames = myCaptures.map(doc => doc.name.toLowerCase());
 
-      // B. Calculate Global Stats (Count UNIQUE users for each animal)
+      // Calculate Global Stats (Count UNIQUE users per base animal)
       const communityStats = {};
       allDocs.forEach(doc => {
-        const animalName = doc.name ? doc.name.toLowerCase() : null;
-        if (!animalName) return; 
-
-        if (!communityStats[animalName]) communityStats[animalName] = new Set();
-        communityStats[animalName].add(doc.userId || Math.random().toString());
+        const bName = doc.baseName ? doc.baseName.toLowerCase() : (doc.name ? doc.name.toLowerCase() : null);
+        if (!bName) return; 
+        if (!communityStats[bName]) communityStats[bName] = new Set();
+        communityStats[bName].add(doc.userId || Math.random().toString());
       });
 
-      // C. Unlock the base 50 animals & attach the community count & fun fact
+      // Build the base 50 animals with INVENTORY data
       const updatedDex = MASTER_ECO_DEX.map(animal => {
-        const isUnlocked = myCapturedNames.includes(animal.name.toLowerCase());
-        const myCaptureDoc = myCaptures.find(doc => doc.name.toLowerCase() === animal.name.toLowerCase());
+        // Find all your specific catches that match this base animal
+        const catchesForThisAnimal = myCaptures.filter(doc => 
+          (doc.baseName || doc.name || "").toLowerCase() === animal.name.toLowerCase()
+        );
+        
+        const isUnlocked = catchesForThisAnimal.length > 0;
+        
+        // Extract just the specific breed names, and remove duplicates using a Set
+        const specificBreedsFound = [...new Set(catchesForThisAnimal.map(doc => doc.specificName || doc.name))].filter(Boolean);
 
         return {
           ...animal,
           isUnlocked: isUnlocked,
+          catchCount: catchesForThisAnimal.length, 
+          inventory: specificBreedsFound, 
           discoveredByCount: communityStats[animal.name.toLowerCase()] ? communityStats[animal.name.toLowerCase()].size : 0,
-          funFact: myCaptureDoc ? myCaptureDoc.funFact : "This creature is still hiding in the wild. Keep exploring to reveal its secrets!"
+          funFact: isUnlocked ? catchesForThisAnimal[0].funFact : "This creature is still hiding in the wild. Keep exploring to reveal its secrets!"
         }
       });
 
-      // D. Find your dynamic discoveries & attach the community count
+      // Handle Dynamic Discoveries (Things outside the base 50)
       const masterNames = MASTER_ECO_DEX.map(a => a.name.toLowerCase());
       const dynamicDiscoveries = myCaptures
-        .filter(doc => !masterNames.includes(doc.name.toLowerCase()))
-        .filter((value, index, self) => index === self.findIndex((t) => t.name.toLowerCase() === value.name.toLowerCase()))
-        .map((doc, index) => ({
-          id: `new-${index}`,
-          name: doc.name,
-          category: doc.category,
-          isUnlocked: true,
-          discoveredByCount: communityStats[doc.name.toLowerCase()] ? communityStats[doc.name.toLowerCase()].size : 0,
-          imageUri: 'https://img.icons8.com/color/96/sparkling.png',
-          funFact: doc.funFact 
-        }));
+        .filter(doc => !masterNames.includes((doc.baseName || doc.name || "").toLowerCase()))
+        .filter((value, index, self) => index === self.findIndex((t) => (t.baseName || t.name).toLowerCase() === (value.baseName || value.name).toLowerCase()))
+        .map((doc, index) => {
+          const bName = doc.baseName || doc.name;
+          const dynamicCatches = myCaptures.filter(d => (d.baseName || d.name) === bName);
+          const dynamicInventory = [...new Set(dynamicCatches.map(d => d.specificName || d.name))].filter(Boolean);
+
+          return {
+            id: `new-${index}`,
+            name: bName,
+            category: doc.category,
+            isUnlocked: true,
+            catchCount: dynamicCatches.length,
+            inventory: dynamicInventory,
+            discoveredByCount: communityStats[bName.toLowerCase()] ? communityStats[bName.toLowerCase()].size : 0,
+            imageUri: 'https://img.icons8.com/color/96/sparkling.png',
+            funFact: doc.funFact 
+          }
+        });
 
       setDatabase([...updatedDex, ...dynamicDiscoveries]);
     });
@@ -153,36 +171,28 @@ export default function App() {
   const analyzeImageWithGemini = async (base64Image) => {
     try {
       const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
-      if (!apiKey) {
-        alert("API Key is missing! Check your .env file.");
-        return null;
-      }
+      if (!apiKey) return null;
 
       const genAI = new GoogleGenerativeAI(apiKey);
       const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-      const prompt = `You are an elite biodiversity app scanner.
-      Identify the primary animal in this photo. 
+      const prompt = `You are an elite biodiversity app scanner. Identify the primary animal in this photo. 
       
-      If it closely matches one of these common animals, use this exact name:
-      Dog, Cat, Squirrel, Monkey, Rat, Bat, Cow, Horse, Pig, Goat, Sheep, Deer, Bear, Elephant, Tiger, Lion, Rabbit, Bird, Chicken, Duck, Owl, Eagle, Parrot, Penguin, Ostrich, Lizard, Snake, Turtle, Crocodile, Frog, Salamander, Butterfly, Spider, Ant, Bee, Beetle, Fly, Mosquito, Grasshopper, Worm, Snail, Centipede, Fish, Shark, Dolphin, Whale, Crab, Shrimp, Octopus, Jellyfish.
+      If it closely matches one of these common animals, use this exact word for 'base_name': Dog, Cat, Squirrel, Monkey, Rat, Bat, Cow, Horse, Pig, Goat, Sheep, Deer, Bear, Elephant, Tiger, Lion, Rabbit, Bird, Chicken, Duck, Owl, Eagle, Parrot, Penguin, Ostrich, Lizard, Snake, Turtle, Crocodile, Frog, Salamander, Butterfly, Spider, Ant, Bee, Beetle, Fly, Mosquito, Grasshopper, Worm, Snail, Centipede, Fish, Shark, Dolphin, Whale, Crab, Shrimp, Octopus, Jellyfish.
       
-      If it is a different animal NOT on this list, provide its specific common name (e.g., "Pangolin", "Hornbill", "Tapir").
-      If there is no animal in the photo, output "None".
+      If it is NOT on this list, provide its general name for 'base_name' (e.g., 'Pangolin', 'Tapir').
+      If there is no animal, output "None" for base_name.
 
-      Return the result STRICTLY as a JSON object with three keys: 
-      'name' (string: the generic name from the list OR the new specific name), 
+      Return the result STRICTLY as a JSON object with four keys: 
+      'base_name' (string: the generic name from the list), 
+      'specific_name' (string: the exact species/breed, e.g., 'Golden Retriever', 'Macaque', 'Monarch Butterfly'),
       'category' (string: Mammal, Reptile, Avian, Insect, Amphibian, Aquatic, or Unknown), 
-      'fun_fact' (string: a short 1-sentence fun fact about the animal). 
+      'fun_fact' (string: a short 1-sentence fun fact about the specific_name). 
       Output ONLY valid JSON. No markdown tags.`;
 
-      const imagePart = {
-        inlineData: { data: base64Image, mimeType: "image/jpeg" }
-      };
-
+      const imagePart = { inlineData: { data: base64Image, mimeType: "image/jpeg" } };
       const result = await model.generateContent([prompt, imagePart]);
-      const responseText = result.response.text();
-      const jsonString = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
+      const jsonString = result.response.text().replace(/```json/g, '').replace(/```/g, '').trim();
       return JSON.parse(jsonString);
 
     } catch (error) {
@@ -191,7 +201,7 @@ export default function App() {
     }
   };
 
-  // --- CORE MECHANIC: CAPTURE & SCAN ---
+  // --- CORE MECHANIC: CAPTURE, SCAN & MISSION LOGIC ---
   const takePictureAndScan = async () => {
     if (cameraRef.current) {
       setIsScanning(true);
@@ -199,31 +209,52 @@ export default function App() {
         const photo = await cameraRef.current.takePictureAsync({ quality: 0.8, base64: true });
         const aiResult = await analyzeImageWithGemini(photo.base64);
         
-        if (aiResult && aiResult.name && aiResult.name !== 'None') {
-          const genericName = aiResult.name.trim();
+        if (aiResult && aiResult.base_name && aiResult.base_name !== 'None') {
+          const bName = aiResult.base_name.trim();
+          const sName = aiResult.specific_name.trim();
+          
+          const isBaseAnimal = MASTER_ECO_DEX.some(a => a.name.toLowerCase() === bName.toLowerCase());
+          const pointsToAward = isBaseAnimal ? 10 : 20;
 
-          // Check if already caught
-          const alreadyCaught = database.some(a => a.name.toLowerCase() === genericName.toLowerCase() && a.isUnlocked);
+          // Always allow the catch to build inventory!
+          alert(`📸 Captured: ${sName}!\n⭐ +${pointsToAward} Points!\n\n💡 Fun Fact: ${aiResult.fun_fact}`);
+          
+          try {
+            await addDoc(collection(db, "capturedAnimals"), {
+              baseName: bName,
+              specificName: sName,
+              category: aiResult.category,
+              funFact: aiResult.fun_fact || "No fact available.",
+              points: pointsToAward, 
+              timestamp: new Date(),
+              userId: user.uid
+            });
 
-          if (alreadyCaught) {
-            alert(`You already unlocked ${genericName}!\n\n💡 Fun Fact: ${aiResult.fun_fact}`);
-          } else {
-            const isBaseAnimal = MASTER_ECO_DEX.some(a => a.name.toLowerCase() === genericName.toLowerCase());
-            const pointsToAward = isBaseAnimal ? 10 : 20;
+            // --- DAILY MISSION LOGIC ---
+            let updatedProgress = { ...missionProgress };
+            let madeProgress = false;
+            const scannedCategory = aiResult.category.toLowerCase();
 
-            alert(`🎉 New Eco-Dex Entry Unlocked: ${genericName}!\n⭐ +${pointsToAward} Points!\n\n💡 Fun Fact: ${aiResult.fun_fact}`);
-            try {
-              await addDoc(collection(db, "capturedAnimals"), {
-                name: genericName,
-                category: aiResult.category,
-                funFact: aiResult.fun_fact || "No fact available.",
-                points: pointsToAward, 
-                timestamp: new Date(),
-                userId: user.uid
-              });
-            } catch (e) {
-              console.error("Save Error: ", e);
+            if (scannedCategory === 'avian' && updatedProgress.avian < 1) {
+              updatedProgress.avian += 1;
+              madeProgress = true;
+            } else if (scannedCategory === 'insect' && updatedProgress.insect < 1) {
+              updatedProgress.insect += 1;
+              madeProgress = true;
             }
+
+            if (madeProgress) {
+              setMissionProgress(updatedProgress);
+              if (updatedProgress.avian >= 1 && updatedProgress.insect >= 1 && !missionCompleted) {
+                setMissionCompleted(true);
+                setTimeout(() => alert("🎉 DAILY MISSION COMPLETE! +50 Bonus Points!"), 500);
+              } else {
+                setTimeout(() => alert(`🎯 Mission Progress Update!\nBirds: ${updatedProgress.avian}/1 | Insects: ${updatedProgress.insect}/1`), 500);
+              }
+            }
+
+          } catch (e) {
+            console.error("Save Error: ", e);
           }
         } else {
           alert("No animal detected. Try getting closer!");
@@ -236,7 +267,7 @@ export default function App() {
     }
   };
 
-  // --- UI RENDERER ---
+  // --- UI RENDERING ---
   const renderAnimalCard = ({ item }) => {
     const isDynamic = String(item.id).startsWith('new');
     const formattedId = isDynamic ? 'NEW!' : `#${String(item.id).padStart(3, '0')}`;
@@ -254,42 +285,28 @@ export default function App() {
             </View>
           )}
         </View>
-        
         <Text style={styles.animalName}>{item.name}</Text>
         <Text style={styles.animalCategory}>{item.category}</Text>
 
         {item.discoveredByCount > 0 ? (
           <View style={styles.communityBadge}>
-            <Text style={styles.communityText}>
-              🌍 Found by {item.discoveredByCount} player{item.discoveredByCount === 1 ? '' : 's'}
-            </Text>
+            <Text style={styles.communityText}>🌍 Found by {item.discoveredByCount}</Text>
           </View>
         ) : (
-          <Text style={[styles.communityText, { color: '#7f8c8d', marginTop: 8 }]}>
-            🌍 Undiscovered
-          </Text>
+          <Text style={[styles.communityText, { color: '#7f8c8d', marginTop: 8 }]}>🌍 Undiscovered</Text>
         )}
       </TouchableOpacity>
     );
   };
 
-  // Permissions Check
   if (!permission) return <View />;
-  if (!permission.granted) {
-    return (
-      <View style={styles.container}>
-        <Text style={styles.permissionText}>We need your permission to use the camera</Text>
-        <TouchableOpacity style={styles.button} onPress={requestPermission}>
-          <Text style={styles.buttonText}>Grant Permission</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
+  if (!permission.granted) { /* Keep basic permission UI */ }
 
+  // Calculate Total Score including Mission Bonus
   const totalScore = database.filter(animal => animal.isUnlocked).reduce((sum, animal) => {
     const isDynamic = String(animal.id).startsWith('new');
     return sum + (isDynamic ? 20 : 10);
-  }, 0);
+  }, 0) + (missionCompleted ? 50 : 0);
 
   return (
     <View style={styles.container}>
@@ -300,6 +317,17 @@ export default function App() {
       
       {activeTab === 'camera' ? (
         <View style={styles.cameraContainer}>
+          {/* DAILY MISSION BANNER */}
+          <View style={styles.missionBanner}>
+            <Text style={styles.missionTitle}>🎯 Daily Mission: Sky & Soil</Text>
+            <Text style={styles.missionText}>
+              Scan 1 Bird ({missionProgress.avian}/1) & 1 Insect ({missionProgress.insect}/1)
+            </Text>
+            {missionCompleted && (
+              <Text style={styles.missionCompleteText}>✅ Completed! +50 Points</Text>
+            )}
+          </View>
+
           <CameraView style={StyleSheet.absoluteFillObject} facing="back" ref={cameraRef} />
           <View style={styles.cameraUI}>
             {isScanning ? (
@@ -324,7 +352,7 @@ export default function App() {
         />
       )}
 
-      {/* NEW: THE ANIMAL DETAIL MODAL */}
+      {/* THE ANIMAL DETAIL MODAL WITH INVENTORY */}
       <Modal visible={!!selectedAnimal} transparent={true} animationType="slide">
         {selectedAnimal && (
           <View style={styles.modalOverlay}>
@@ -335,11 +363,7 @@ export default function App() {
               </TouchableOpacity>
 
               <View style={styles.modalImageContainer}>
-                {selectedAnimal.isUnlocked ? (
-                  <Image source={{ uri: selectedAnimal.imageUri }} style={styles.modalImage} />
-                ) : (
-                   <Image source={{ uri: selectedAnimal.imageUri }} style={[styles.modalImage, styles.silhouette]} />
-                )}
+                <Image source={{ uri: selectedAnimal.imageUri }} style={[styles.modalImage, !selectedAnimal.isUnlocked && styles.silhouette]} />
               </View>
 
               <Text style={styles.modalName}>{selectedAnimal.name}</Text>
@@ -351,11 +375,29 @@ export default function App() {
                 </Text>
               </View>
 
-              <ScrollView style={styles.factContainer}>
-                <Text style={styles.factTitle}>Eco-Fact:</Text>
-                <Text style={[styles.factText, !selectedAnimal.isUnlocked && { fontStyle: 'italic', color: '#95a5a6' }]}>
-                  {selectedAnimal.funFact}
-                </Text>
+              <ScrollView style={styles.modalScrollArea}>
+                <View style={styles.factContainer}>
+                  <Text style={styles.factTitle}>Eco-Fact:</Text>
+                  <Text style={[styles.factText, !selectedAnimal.isUnlocked && { fontStyle: 'italic', color: '#95a5a6' }]}>
+                    {selectedAnimal.funFact}
+                  </Text>
+                </View>
+
+                {/* THE NEW COLLECTION INVENTORY */}
+                <View style={styles.inventoryContainer}>
+                  <Text style={styles.inventoryTitle}>
+                    🎒 Your Collection ({selectedAnimal.catchCount || 0} caught)
+                  </Text>
+                  {selectedAnimal.catchCount > 0 ? (
+                    selectedAnimal.inventory.map((breedName, index) => (
+                      <Text key={index} style={styles.inventoryItem}>
+                        • {breedName}
+                      </Text>
+                    ))
+                  ) : (
+                    <Text style={styles.inventoryItem}>No specific species found yet.</Text>
+                  )}
+                </View>
               </ScrollView>
 
             </View>
@@ -380,9 +422,6 @@ const styles = StyleSheet.create({
   header: { paddingTop: 60, paddingBottom: 20, backgroundColor: '#2c3e50', alignItems: 'center' },
   headerTitle: { color: '#27ae60', fontSize: 26, fontWeight: '900', letterSpacing: 1 },
   scoreText: { color: '#f1c40f', fontSize: 16, fontWeight: 'bold', marginTop: 5 },
-  permissionText: { color: 'white', textAlign: 'center', marginTop: 150, fontSize: 18, paddingHorizontal: 20 },
-  button: { backgroundColor: '#27ae60', padding: 15, margin: 20, borderRadius: 10, alignItems: 'center' },
-  buttonText: { color: 'white', fontWeight: 'bold' },
   
   cameraContainer: { flex: 1, position: 'relative' },
   cameraUI: { ...StyleSheet.absoluteFillObject, backgroundColor: 'transparent', justifyContent: 'flex-end', alignItems: 'center', paddingBottom: 40, zIndex: 10 },
@@ -390,6 +429,12 @@ const styles = StyleSheet.create({
   captureInner: { width: 60, height: 60, borderRadius: 30, backgroundColor: 'white' },
   scanningOverlay: { backgroundColor: 'rgba(0,0,0,0.8)', padding: 20, borderRadius: 15, alignItems: 'center' },
   scanningText: { color: '#00ff00', marginTop: 10, fontWeight: 'bold', letterSpacing: 1 },
+
+  // Mission Banner Styles
+  missionBanner: { position: 'absolute', top: 20, left: 20, right: 20, backgroundColor: 'rgba(44, 62, 80, 0.9)', padding: 15, borderRadius: 15, zIndex: 20, borderWidth: 2, borderColor: '#27ae60', alignItems: 'center', elevation: 5 },
+  missionTitle: { color: '#f1c40f', fontWeight: '900', fontSize: 16, marginBottom: 5 },
+  missionText: { color: 'white', fontSize: 14, fontWeight: 'bold' },
+  missionCompleteText: { color: '#2ecc71', fontSize: 14, fontWeight: '900', marginTop: 5, backgroundColor: 'rgba(46, 204, 113, 0.2)', paddingHorizontal: 10, paddingVertical: 3, borderRadius: 10 },
 
   pokedexList: { padding: 10 },
   card: { flex: 1, backgroundColor: '#2c3e50', margin: 5, borderRadius: 12, padding: 10, alignItems: 'center', elevation: 5 },
@@ -409,8 +454,9 @@ const styles = StyleSheet.create({
   navItemActive: { borderBottomWidth: 3, borderBottomColor: '#27ae60' },
   navText: { color: 'white', fontWeight: 'bold' },
 
+  // Modal Styles
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', alignItems: 'center', padding: 20 },
-  modalContent: { width: '100%', backgroundColor: '#2c3e50', borderRadius: 20, padding: 20, alignItems: 'center', elevation: 10, position: 'relative' },
+  modalContent: { width: '100%', maxHeight: '85%', backgroundColor: '#2c3e50', borderRadius: 20, padding: 20, alignItems: 'center', elevation: 10, position: 'relative' },
   closeButton: { position: 'absolute', top: 15, right: 15, zIndex: 10, backgroundColor: 'rgba(255,255,255,0.1)', width: 35, height: 35, borderRadius: 17.5, justifyContent: 'center', alignItems: 'center' },
   closeButtonText: { color: 'white', fontSize: 18, fontWeight: 'bold' },
   modalImageContainer: { width: 120, height: 120, borderRadius: 60, backgroundColor: '#ecf0f1', justifyContent: 'center', alignItems: 'center', marginBottom: 15, borderWidth: 4, borderColor: '#27ae60' },
@@ -419,7 +465,14 @@ const styles = StyleSheet.create({
   modalCategory: { color: '#bdc3c7', fontSize: 14, textTransform: 'uppercase', marginBottom: 15, letterSpacing: 2 },
   statusBadge: { backgroundColor: 'rgba(39, 174, 96, 0.2)', paddingHorizontal: 15, paddingVertical: 5, borderRadius: 15, marginBottom: 20 },
   statusText: { color: '#2ecc71', fontWeight: 'bold', fontSize: 12 },
-  factContainer: { width: '100%', backgroundColor: 'rgba(0,0,0,0.2)', padding: 15, borderRadius: 10, maxHeight: 150 },
+  modalScrollArea: { width: '100%' },
+  
+  factContainer: { width: '100%', backgroundColor: 'rgba(0,0,0,0.2)', padding: 15, borderRadius: 10, marginBottom: 15 },
   factTitle: { color: '#3498db', fontWeight: 'bold', marginBottom: 5 },
   factText: { color: 'white', fontSize: 15, lineHeight: 22 },
+  
+  // Inventory Styles
+  inventoryContainer: { width: '100%', backgroundColor: 'rgba(0,0,0,0.2)', padding: 15, borderRadius: 10 },
+  inventoryTitle: { color: '#f39c12', fontWeight: 'bold', marginBottom: 10, fontSize: 16 },
+  inventoryItem: { color: 'white', fontSize: 14, marginBottom: 5, marginLeft: 5 }
 });
