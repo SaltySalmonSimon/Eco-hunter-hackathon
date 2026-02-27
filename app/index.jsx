@@ -89,26 +89,60 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // 2. Fetch User's Captured Animals from Firebase
+  // 2. Fetch ALL Captured Animals (Community Tally + Personal Unlocks)
   useEffect(() => {
     if (!user) return; 
 
-    const q = query(collection(db, "capturedAnimals"), where("userId", "==", user.uid));
+    // HACKATHON TRICK: We removed the 'where' filter to pull the entire community's data!
+    const q = query(collection(db, "capturedAnimals"));
+    
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const capturedDocs = snapshot.docs.map(doc => doc.data());
-      const capturedNames = capturedDocs.map(doc => doc.name.toLowerCase());
+      const allDocs = snapshot.docs.map(doc => doc.data());
       
-      // Unlock animals in the UI if the user found them
+      // A. Filter out just YOUR captures to know what to unlock
+      const myCaptures = allDocs.filter(doc => doc.userId === user.uid);
+      const myCapturedNames = myCaptures.map(doc => doc.name.toLowerCase());
+
+      // B. Calculate Global Stats (Count UNIQUE users for each animal)
+      const communityStats = {};
+      allDocs.forEach(doc => {
+        const animalName = doc.name ? doc.name.toLowerCase() : null;
+        if (!animalName) return; // Skip broken data
+
+        if (!communityStats[animalName]) communityStats[animalName] = new Set();
+        
+        // THE FIX: If it's an old test scan without a userId, give it a random ID so it still counts!
+        communityStats[animalName].add(doc.userId || Math.random().toString());
+      });
+
+      // C. Unlock the base 50 animals & attach the community count
       const updatedDex = MASTER_ECO_DEX.map(animal => ({
         ...animal,
-        isUnlocked: capturedNames.includes(animal.name.toLowerCase())
+        isUnlocked: myCapturedNames.includes(animal.name.toLowerCase()),
+        // Look up the size of the Set to get the total number of unique players
+        discoveredByCount: communityStats[animal.name.toLowerCase()] ? communityStats[animal.name.toLowerCase()].size : 0
       }));
 
-      setDatabase(updatedDex);
+      // D. Find your dynamic discoveries & attach the community count
+      const masterNames = MASTER_ECO_DEX.map(a => a.name.toLowerCase());
+      const dynamicDiscoveries = myCaptures
+        .filter(doc => !masterNames.includes(doc.name.toLowerCase()))
+        .filter((value, index, self) => index === self.findIndex((t) => t.name.toLowerCase() === value.name.toLowerCase()))
+        .map((doc, index) => ({
+          id: `new-${index}`,
+          name: doc.name,
+          category: doc.category,
+          isUnlocked: true,
+          discoveredByCount: communityStats[doc.name.toLowerCase()] ? communityStats[doc.name.toLowerCase()].size : 0,
+          imageUri: 'https://img.icons8.com/color/96/sparkling.png' 
+        }));
+
+      setDatabase([...updatedDex, ...dynamicDiscoveries]);
     });
 
     return () => unsubscribe(); 
   }, [user]);
+
 
   // --- GEMINI AI INTEGRATION ---
   const analyzeImageWithGemini = async (base64Image) => {
@@ -123,19 +157,17 @@ export default function App() {
       const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
       // The brain: Only searches for these exact 50 words
-      const prompt = `You are a strict biodiversity app scanner.
+      const prompt = `You are an elite biodiversity app scanner.
       Identify the primary animal in this photo. 
       
-      CRITICAL RULE: You MUST classify the animal using ONLY one of the following exact 50 words:
+      If it closely matches one of these common animals, use this exact name:
       Dog, Cat, Squirrel, Monkey, Rat, Bat, Cow, Horse, Pig, Goat, Sheep, Deer, Bear, Elephant, Tiger, Lion, Rabbit, Bird, Chicken, Duck, Owl, Eagle, Parrot, Penguin, Ostrich, Lizard, Snake, Turtle, Crocodile, Frog, Salamander, Butterfly, Spider, Ant, Bee, Beetle, Fly, Mosquito, Grasshopper, Worm, Snail, Centipede, Fish, Shark, Dolphin, Whale, Crab, Shrimp, Octopus, Jellyfish.
       
-      Example: If it's a Poodle, output "Dog". If it's a Hornbill, output "Bird". If it's a Python, output "Snake".
-      
-      If the animal does not fit into any of these 50 categories, output "Unknown".
+      If it is a different animal NOT on this list, provide its specific common name (e.g., "Pangolin", "Hornbill", "Tapir").
       If there is no animal in the photo, output "None".
 
       Return the result STRICTLY as a JSON object with three keys: 
-      'name' (string: the exact generic name from the list above), 
+      'name' (string: the generic name from the list OR the new specific name), 
       'category' (string: Mammal, Reptile, Avian, Insect, Amphibian, Aquatic, or Unknown), 
       'fun_fact' (string: a short 1-sentence fun fact about the animal). 
       Output ONLY valid JSON. No markdown tags.`;
@@ -165,26 +197,24 @@ export default function App() {
         
         if (aiResult && aiResult.name && aiResult.name !== 'None') {
           const genericName = aiResult.name.trim();
-          
-          if (genericName.toLowerCase() === 'unknown') {
-             alert("Detected an animal, but it's not in the official Eco-Dex yet! Try scanning something else.");
-             setIsScanning(false);
-             return;
-          }
 
           // Check if already caught
           const alreadyCaught = database.some(a => a.name.toLowerCase() === genericName.toLowerCase() && a.isUnlocked);
 
           if (alreadyCaught) {
-            alert(`You already unlocked #${genericName}!\n\n💡 Fun Fact: ${aiResult.fun_fact}`);
+            alert(`You already unlocked ${genericName}!\n\n💡 Fun Fact: ${aiResult.fun_fact}`);
           } else {
-            alert(`🎉 New Eco-Dex Entry Unlocked: ${genericName}!\n⭐ +10 Points!\n\n💡 Fun Fact: ${aiResult.fun_fact}`);
+            // NEW LOGIC: Is it a base 50 animal or a brand new rare discovery?
+            const isBaseAnimal = MASTER_ECO_DEX.some(a => a.name.toLowerCase() === genericName.toLowerCase());
+            const pointsToAward = isBaseAnimal ? 10 : 20;
+
+            alert(`🎉 New Eco-Dex Entry Unlocked: ${genericName}!\n⭐ +${pointsToAward} Points!\n\n💡 Fun Fact: ${aiResult.fun_fact}`);
             try {
               await addDoc(collection(db, "capturedAnimals"), {
                 name: genericName,
                 category: aiResult.category,
                 funFact: aiResult.fun_fact || "No fact available.",
-                points: 10,
+                points: pointsToAward, // Save the dynamic points!
                 timestamp: new Date(),
                 userId: user.uid
               });
@@ -205,11 +235,12 @@ export default function App() {
 
   // --- UI RENDERER ---
   const renderAnimalCard = ({ item }) => {
-    const formattedId = `#${String(item.id).padStart(3, '0')}`;
+    const isDynamic = String(item.id).startsWith('new');
+    const formattedId = isDynamic ? 'NEW!' : `#${String(item.id).padStart(3, '0')}`;
 
     return (
       <View style={styles.card}>
-        <Text style={styles.idNumber}>{formattedId}</Text>
+        <Text style={[styles.idNumber, isDynamic && { color: '#f1c40f' }]}>{formattedId}</Text>        
         <View style={styles.imageContainer}>
           {item.isUnlocked ? (
             <Image source={{ uri: item.imageUri }} style={styles.animalImage} />
@@ -230,6 +261,19 @@ export default function App() {
         <Text style={styles.animalCategory}>
           {item.category}
         </Text>
+
+        {/* NEW: Community Counter Badge */}
+        {item.discoveredByCount > 0 ? (
+          <View style={{ backgroundColor: 'rgba(52, 152, 219, 0.2)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, marginTop: 8 }}>
+            <Text style={styles.communityText}>
+              🌍 Found by {item.discoveredByCount} player{item.discoveredByCount === 1 ? '' : 's'}
+            </Text>
+          </View>
+        ) : (
+          <Text style={[styles.communityText, { color: '#7f8c8d', marginTop: 8 }]}>
+            🌍 Undiscovered
+          </Text>
+        )}
         
       </View>
     );
@@ -248,7 +292,11 @@ export default function App() {
     );
   }
 
-  const totalScore = database.filter(animal => animal.isUnlocked).length * 10;
+  const totalScore = database.filter(animal => animal.isUnlocked).reduce((sum, animal) => {
+    // If the ID starts with 'new', it's a dynamic animal!
+    const isDynamic = String(animal.id).startsWith('new');
+    return sum + (isDynamic ? 20 : 10);
+  }, 0);
 
   return (
     <View style={styles.container}>
@@ -321,6 +369,7 @@ const styles = StyleSheet.create({
   questionMark: { position: 'absolute', color: 'rgba(255,255,255,0.4)', fontSize: 35, fontWeight: 'bold' },
   animalName: { color: 'white', fontWeight: 'bold', fontSize: 16, textAlign: 'center' },
   animalCategory: { color: '#bdc3c7', fontSize: 11, marginTop: 2, textTransform: 'uppercase' },
+  communityText: { color: '#3498db', fontSize: 11, fontWeight: 'bold' },
 
   navBar: { flexDirection: 'row', backgroundColor: '#2c3e50', paddingBottom: 30, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#34495e' },
   navItem: { flex: 1, alignItems: 'center', paddingVertical: 10 },
