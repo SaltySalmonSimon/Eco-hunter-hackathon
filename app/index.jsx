@@ -1,10 +1,10 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useRouter } from 'expo-router';
-import { onAuthStateChanged } from 'firebase/auth';
-import { addDoc, collection, onSnapshot, query, where } from 'firebase/firestore';
+import { onAuthStateChange   } from 'firebase/auth';
+import { addDoc, collection, onSnapshot, query } from 'firebase/firestore';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, FlatList, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { auth, db } from '../firebase-config';
 
 // --- THE MASTER ECO-DEX DATABASE (50 ANIMALS) ---
@@ -77,6 +77,9 @@ export default function App() {
   const [isScanning, setIsScanning] = useState(false);
   const cameraRef = useRef(null);
 
+  // NEW STATE: Tracks which animal is currently open in the Modal
+  const [selectedAnimal, setSelectedAnimal] = useState(null);
+
   // 1. Authenticate the User
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -93,7 +96,6 @@ export default function App() {
   useEffect(() => {
     if (!user) return; 
 
-    // HACKATHON TRICK: We removed the 'where' filter to pull the entire community's data!
     const q = query(collection(db, "capturedAnimals"));
     
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -107,21 +109,24 @@ export default function App() {
       const communityStats = {};
       allDocs.forEach(doc => {
         const animalName = doc.name ? doc.name.toLowerCase() : null;
-        if (!animalName) return; // Skip broken data
+        if (!animalName) return; 
 
         if (!communityStats[animalName]) communityStats[animalName] = new Set();
-        
-        // THE FIX: If it's an old test scan without a userId, give it a random ID so it still counts!
         communityStats[animalName].add(doc.userId || Math.random().toString());
       });
 
-      // C. Unlock the base 50 animals & attach the community count
-      const updatedDex = MASTER_ECO_DEX.map(animal => ({
-        ...animal,
-        isUnlocked: myCapturedNames.includes(animal.name.toLowerCase()),
-        // Look up the size of the Set to get the total number of unique players
-        discoveredByCount: communityStats[animal.name.toLowerCase()] ? communityStats[animal.name.toLowerCase()].size : 0
-      }));
+      // C. Unlock the base 50 animals & attach the community count & fun fact
+      const updatedDex = MASTER_ECO_DEX.map(animal => {
+        const isUnlocked = myCapturedNames.includes(animal.name.toLowerCase());
+        const myCaptureDoc = myCaptures.find(doc => doc.name.toLowerCase() === animal.name.toLowerCase());
+
+        return {
+          ...animal,
+          isUnlocked: isUnlocked,
+          discoveredByCount: communityStats[animal.name.toLowerCase()] ? communityStats[animal.name.toLowerCase()].size : 0,
+          funFact: myCaptureDoc ? myCaptureDoc.funFact : "This creature is still hiding in the wild. Keep exploring to reveal its secrets!"
+        }
+      });
 
       // D. Find your dynamic discoveries & attach the community count
       const masterNames = MASTER_ECO_DEX.map(a => a.name.toLowerCase());
@@ -134,7 +139,8 @@ export default function App() {
           category: doc.category,
           isUnlocked: true,
           discoveredByCount: communityStats[doc.name.toLowerCase()] ? communityStats[doc.name.toLowerCase()].size : 0,
-          imageUri: 'https://img.icons8.com/color/96/sparkling.png' 
+          imageUri: 'https://img.icons8.com/color/96/sparkling.png',
+          funFact: doc.funFact 
         }));
 
       setDatabase([...updatedDex, ...dynamicDiscoveries]);
@@ -142,7 +148,6 @@ export default function App() {
 
     return () => unsubscribe(); 
   }, [user]);
-
 
   // --- GEMINI AI INTEGRATION ---
   const analyzeImageWithGemini = async (base64Image) => {
@@ -156,7 +161,6 @@ export default function App() {
       const genAI = new GoogleGenerativeAI(apiKey);
       const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-      // The brain: Only searches for these exact 50 words
       const prompt = `You are an elite biodiversity app scanner.
       Identify the primary animal in this photo. 
       
@@ -204,7 +208,6 @@ export default function App() {
           if (alreadyCaught) {
             alert(`You already unlocked ${genericName}!\n\n💡 Fun Fact: ${aiResult.fun_fact}`);
           } else {
-            // NEW LOGIC: Is it a base 50 animal or a brand new rare discovery?
             const isBaseAnimal = MASTER_ECO_DEX.some(a => a.name.toLowerCase() === genericName.toLowerCase());
             const pointsToAward = isBaseAnimal ? 10 : 20;
 
@@ -214,7 +217,7 @@ export default function App() {
                 name: genericName,
                 category: aiResult.category,
                 funFact: aiResult.fun_fact || "No fact available.",
-                points: pointsToAward, // Save the dynamic points!
+                points: pointsToAward, 
                 timestamp: new Date(),
                 userId: user.uid
               });
@@ -239,7 +242,7 @@ export default function App() {
     const formattedId = isDynamic ? 'NEW!' : `#${String(item.id).padStart(3, '0')}`;
 
     return (
-      <View style={styles.card}>
+      <TouchableOpacity style={styles.card} onPress={() => setSelectedAnimal(item)}>
         <Text style={[styles.idNumber, isDynamic && { color: '#f1c40f' }]}>{formattedId}</Text>        
         <View style={styles.imageContainer}>
           {item.isUnlocked ? (
@@ -252,19 +255,11 @@ export default function App() {
           )}
         </View>
         
-        {/* CHANGED: Now it always shows the name! */}
-        <Text style={styles.animalName}>
-          {item.name}
-        </Text>
-        
-        {/* CHANGED: Now it always shows the category too! */}
-        <Text style={styles.animalCategory}>
-          {item.category}
-        </Text>
+        <Text style={styles.animalName}>{item.name}</Text>
+        <Text style={styles.animalCategory}>{item.category}</Text>
 
-        {/* NEW: Community Counter Badge */}
         {item.discoveredByCount > 0 ? (
-          <View style={{ backgroundColor: 'rgba(52, 152, 219, 0.2)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, marginTop: 8 }}>
+          <View style={styles.communityBadge}>
             <Text style={styles.communityText}>
               🌍 Found by {item.discoveredByCount} player{item.discoveredByCount === 1 ? '' : 's'}
             </Text>
@@ -274,8 +269,7 @@ export default function App() {
             🌍 Undiscovered
           </Text>
         )}
-        
-      </View>
+      </TouchableOpacity>
     );
   };
 
@@ -293,7 +287,6 @@ export default function App() {
   }
 
   const totalScore = database.filter(animal => animal.isUnlocked).reduce((sum, animal) => {
-    // If the ID starts with 'new', it's a dynamic animal!
     const isDynamic = String(animal.id).startsWith('new');
     return sum + (isDynamic ? 20 : 10);
   }, 0);
@@ -330,6 +323,45 @@ export default function App() {
           contentContainerStyle={styles.pokedexList}
         />
       )}
+
+      {/* NEW: THE ANIMAL DETAIL MODAL */}
+      <Modal visible={!!selectedAnimal} transparent={true} animationType="slide">
+        {selectedAnimal && (
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              
+              <TouchableOpacity style={styles.closeButton} onPress={() => setSelectedAnimal(null)}>
+                <Text style={styles.closeButtonText}>✕</Text>
+              </TouchableOpacity>
+
+              <View style={styles.modalImageContainer}>
+                {selectedAnimal.isUnlocked ? (
+                  <Image source={{ uri: selectedAnimal.imageUri }} style={styles.modalImage} />
+                ) : (
+                   <Image source={{ uri: selectedAnimal.imageUri }} style={[styles.modalImage, styles.silhouette]} />
+                )}
+              </View>
+
+              <Text style={styles.modalName}>{selectedAnimal.name}</Text>
+              <Text style={styles.modalCategory}>{selectedAnimal.category}</Text>
+              
+              <View style={styles.statusBadge}>
+                <Text style={styles.statusText}>
+                  {selectedAnimal.isUnlocked ? "✅ UNLOCKED" : "🔒 LOCKED"}
+                </Text>
+              </View>
+
+              <ScrollView style={styles.factContainer}>
+                <Text style={styles.factTitle}>Eco-Fact:</Text>
+                <Text style={[styles.factText, !selectedAnimal.isUnlocked && { fontStyle: 'italic', color: '#95a5a6' }]}>
+                  {selectedAnimal.funFact}
+                </Text>
+              </ScrollView>
+
+            </View>
+          </View>
+        )}
+      </Modal>
 
       <View style={styles.navBar}>
         <TouchableOpacity style={[styles.navItem, activeTab === 'camera' && styles.navItemActive]} onPress={() => setActiveTab('camera')}>
@@ -370,9 +402,24 @@ const styles = StyleSheet.create({
   animalName: { color: 'white', fontWeight: 'bold', fontSize: 16, textAlign: 'center' },
   animalCategory: { color: '#bdc3c7', fontSize: 11, marginTop: 2, textTransform: 'uppercase' },
   communityText: { color: '#3498db', fontSize: 11, fontWeight: 'bold' },
+  communityBadge: { backgroundColor: 'rgba(52, 152, 219, 0.2)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, marginTop: 8 },
 
   navBar: { flexDirection: 'row', backgroundColor: '#2c3e50', paddingBottom: 30, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#34495e' },
   navItem: { flex: 1, alignItems: 'center', paddingVertical: 10 },
   navItemActive: { borderBottomWidth: 3, borderBottomColor: '#27ae60' },
-  navText: { color: 'white', fontWeight: 'bold' }
+  navText: { color: 'white', fontWeight: 'bold' },
+
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  modalContent: { width: '100%', backgroundColor: '#2c3e50', borderRadius: 20, padding: 20, alignItems: 'center', elevation: 10, position: 'relative' },
+  closeButton: { position: 'absolute', top: 15, right: 15, zIndex: 10, backgroundColor: 'rgba(255,255,255,0.1)', width: 35, height: 35, borderRadius: 17.5, justifyContent: 'center', alignItems: 'center' },
+  closeButtonText: { color: 'white', fontSize: 18, fontWeight: 'bold' },
+  modalImageContainer: { width: 120, height: 120, borderRadius: 60, backgroundColor: '#ecf0f1', justifyContent: 'center', alignItems: 'center', marginBottom: 15, borderWidth: 4, borderColor: '#27ae60' },
+  modalImage: { width: 80, height: 80 },
+  modalName: { color: 'white', fontSize: 28, fontWeight: '900', letterSpacing: 1 },
+  modalCategory: { color: '#bdc3c7', fontSize: 14, textTransform: 'uppercase', marginBottom: 15, letterSpacing: 2 },
+  statusBadge: { backgroundColor: 'rgba(39, 174, 96, 0.2)', paddingHorizontal: 15, paddingVertical: 5, borderRadius: 15, marginBottom: 20 },
+  statusText: { color: '#2ecc71', fontWeight: 'bold', fontSize: 12 },
+  factContainer: { width: '100%', backgroundColor: 'rgba(0,0,0,0.2)', padding: 15, borderRadius: 10, maxHeight: 150 },
+  factTitle: { color: '#3498db', fontWeight: 'bold', marginBottom: 5 },
+  factText: { color: 'white', fontSize: 15, lineHeight: 22 },
 });
