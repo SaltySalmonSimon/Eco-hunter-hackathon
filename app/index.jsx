@@ -1,60 +1,113 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react'; // Added useEffect
 import { ActivityIndicator, FlatList, Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { db } from '../firebase-config';
+import { collection, addDoc, onSnapshot } from 'firebase/firestore'; // Added Firebase imports
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
-// --- MOCK DATABASE ---
-// This represents your Firebase data. 'isUnlocked' determines if they see the silhouette or the photo.
-const INITIAL_DATABASE = [
-  { id: '1', name: 'Plantain Squirrel', category: 'Mammal', isUnlocked: false, imageUri: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1c/Plantain_Squirrel_%28Callosciurus_notatus%29.jpg/640px-Plantain_Squirrel_%28Callosciurus_notatus%29.jpg' },
-  { id: '2', name: 'Macaque', category: 'Mammal', isUnlocked: false, imageUri: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Macaca_fascicularis_-_01.jpg/640px-Macaca_fascicularis_-_01.jpg' },
-  { id: '3', name: 'Monitor Lizard', category: 'Reptile', isUnlocked: false, imageUri: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/fa/Varanus_salvator_-_01.jpg/640px-Varanus_salvator_-_01.jpg' },
-  { id: '4', name: 'Kingfisher', category: 'Bird', isUnlocked: false, imageUri: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/07/White-throated_Kingfisher.jpg/640px-White-throated_Kingfisher.jpg' },
+const genAI = new GoogleGenerativeAI(process.env.EXPO_PUBLIC_GEMINI_API_KEY);
+
+// It is safe to keep constants outside the component
+const REGION_ANIMALS = [
+  { id: '1', name: 'Plantain Squirrel', category: 'Mammal', imageUri: 'https://upload.wikimedia.org/wikipedia/commons/thumb/1/1c/Plantain_Squirrel_%28Callosciurus_notatus%29.jpg/640px-Plantain_Squirrel_%28Callosciurus_notatus%29.jpg' },
+  { id: '2', name: 'Macaque', category: 'Mammal', imageUri: 'https://upload.wikimedia.org/wikipedia/commons/thumb/c/c1/Macaca_fascicularis_-_01.jpg/640px-Macaca_fascicularis_-_01.jpg' },
+  { id: '3', name: 'Monitor Lizard', category: 'Reptile', imageUri: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/fa/Varanus_salvator_-_01.jpg/640px-Varanus_salvator_-_01.jpg' },
+  { id: '4', name: 'Kingfisher', category: 'Bird', imageUri: 'https://upload.wikimedia.org/wikipedia/commons/thumb/0/07/White-throated_Kingfisher.jpg/640px-White-throated_Kingfisher.jpg' },
 ];
+
 
 export default function App() {
   const [permission, requestPermission] = useCameraPermissions();
-  const [activeTab, setActiveTab] = useState('camera'); // 'camera' or 'pokedex'
-  const [database, setDatabase] = useState(INITIAL_DATABASE);
+  const [activeTab, setActiveTab] = useState('camera');
+  
+  // Fixed: Now references REGION_ANIMALS
+  const [database, setDatabase] = useState(REGION_ANIMALS); 
   const [isScanning, setIsScanning] = useState(false);
   const cameraRef = useRef(null);
 
-  if (!permission) return <View />;
-  if (!permission.granted) {
-    return (
-      <View style={styles.container}>
-        <Text style={styles.text}>We need your permission to show the camera</Text>
-        <TouchableOpacity style={styles.button} onPress={requestPermission}>
-          <Text style={styles.buttonText}>Grant Permission</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
+  // Fixed: Moved the listener INSIDE the component
+  useEffect(() => {
+    const unsubscribe = onSnapshot(collection(db, "capturedAnimals"), (snapshot) => {
+      const capturedNames = snapshot.docs.map(doc => doc.data().name.toLowerCase());
+      
+      setDatabase(REGION_ANIMALS.map(animal => ({
+        ...animal,
+        isUnlocked: capturedNames.includes(animal.name.toLowerCase())
+      })));
+    });
+
+    return () => unsubscribe(); 
+  }, []);
+
+
+  // --- GEMINI AI INTEGRATION ---
+  const analyzeImageWithGemini = async (base64Image) => {
+    try {
+      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+      const prompt = `You are an expert Malaysian wildlife biologist. Analyze this image. 
+      Identify the animal. If it matches one of these animals (Plantain Squirrel, Macaque, Monitor Lizard, Kingfisher), use that exact name. 
+      Return the result STRICTLY as a JSON object with two keys: 'name' (string) and 'category' (string: Mammal, Reptile, Bird, or Unknown). Do not include markdown formatting.`;
+
+      const imagePart = {
+        inlineData: {
+          data: base64Image,
+          mimeType: "image/jpeg"
+        }
+      };
+
+      // Send the image and prompt to Google's servers
+      const result = await model.generateContent([prompt, imagePart]);
+      const responseText = result.response.text();
+      
+      // Clean up the text to ensure we only parse valid JSON
+      const jsonString = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
+      return JSON.parse(jsonString);
+
+    } catch (error) {
+      console.error("Gemini API Error:", error);
+      return null;
+    }
+  };
+
 
   // --- CORE MECHANIC: CAPTURE & SCAN ---
   const takePictureAndScan = async () => {
     if (cameraRef.current) {
       setIsScanning(true);
-      // 1. Take the picture (Enforces in-app camera only)
-      const photo = await cameraRef.current.takePictureAsync({ quality: 0.5, base64: true });
       
-      // 2. THIS IS WHERE YOUR HACKATHON LOGIC GOES
-      // TODO: Send 'photo.base64' to Google Cloud Vision API
-      // TODO: If Vision API returns "Squirrel", update Firebase.
-      
-      // 3. Mock AI Simulation (Unlocks a random locked animal after 2 seconds)
-      setTimeout(() => {
-        const lockedAnimals = database.filter(animal => !animal.isUnlocked);
-        if (lockedAnimals.length > 0) {
-          const randomUnlock = lockedAnimals[Math.floor(Math.random() * lockedAnimals.length)];
-          setDatabase(prev => prev.map(animal => 
-            animal.id === randomUnlock.id ? { ...animal, isUnlocked: true } : animal
-          ));
-          alert(`Success! You identified a ${randomUnlock.name}!`);
+      try {
+        // 1. Take the picture
+        const photo = await cameraRef.current.takePictureAsync({ quality: 0.5, base64: true });
+        
+        // 2. Send to Gemini
+        const aiResult = await analyzeImageWithGemini(photo.base64);
+        
+        // 3. Handle the Result & Save to Firebase
+        if (aiResult && aiResult.name) {
+          alert(`Google AI Identified: ${aiResult.name}!`);
+          
+          try {
+            // Push the captured animal to the live database
+            await addDoc(collection(db, "capturedAnimals"), {
+              name: aiResult.name,
+              category: aiResult.category,
+              timestamp: new Date()
+            });
+            console.log("Successfully saved to Firebase!");
+          } catch (e) {
+            console.error("Error saving to Firebase: ", e);
+            alert("Failed to save to database.");
+          }
+
         } else {
-          alert('You have collected all the animals in this region!');
+          alert("Could not identify an animal in this photo. Try getting closer!");
         }
+      } catch (error) {
+        alert("Something went wrong with the scan.");
+      } finally {
         setIsScanning(false);
-      }, 2000);
+      }
     }
   };
 
@@ -89,20 +142,22 @@ export default function App() {
       {/* MAIN CONTENT AREA */}
       {activeTab === 'camera' ? (
         <View style={styles.cameraContainer}>
-          <CameraView style={styles.camera} facing="back" ref={cameraRef}>
-            <View style={styles.cameraUI}>
-              {isScanning ? (
-                <View style={styles.scanningOverlay}>
-                   <ActivityIndicator size="large" color="#00ff00" />
-                   <Text style={styles.scanningText}>Google AI Scanning...</Text>
-                </View>
-              ) : (
-                <TouchableOpacity style={styles.captureButton} onPress={takePictureAndScan}>
-                  <View style={styles.captureInner} />
-                </TouchableOpacity>
-              )}
-            </View>
-          </CameraView>
+          {/* 1. CameraView is now self-closing and takes up the whole background */}
+          <CameraView style={StyleSheet.absoluteFillObject} facing="back" ref={cameraRef} />
+          
+          {/* 2. UI is OUTSIDE the CameraView, layered on top using absolute positioning */}
+          <View style={styles.cameraUI}>
+            {isScanning ? (
+              <View style={styles.scanningOverlay}>
+                 <ActivityIndicator size="large" color="#00ff00" />
+                 <Text style={styles.scanningText}>Google AI Scanning...</Text>
+              </View>
+            ) : (
+              <TouchableOpacity style={styles.captureButton} onPress={takePictureAndScan}>
+                <View style={styles.captureInner} />
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
       ) : (
         <FlatList
@@ -136,9 +191,15 @@ const styles = StyleSheet.create({
   buttonText: { color: 'white', fontWeight: 'bold' },
   
   // Camera Styles
-  cameraContainer: { flex: 1 },
-  camera: { flex: 1 },
-  cameraUI: { flex: 1, backgroundColor: 'transparent', justifyContent: 'flex-end', alignItems: 'center', paddingBottom: 40 },
+  cameraContainer: { flex: 1, position: 'relative' },
+  cameraUI: { 
+    ...StyleSheet.absoluteFillObject, // This is the magic line that layers it on top!
+    backgroundColor: 'transparent', 
+    justifyContent: 'flex-end', 
+    alignItems: 'center', 
+    paddingBottom: 40,
+    zIndex: 10 // Ensures buttons are clickable over the camera
+  },
   captureButton: { width: 80, height: 80, borderRadius: 40, backgroundColor: 'rgba(255, 255, 255, 0.3)', justifyContent: 'center', alignItems: 'center' },
   captureInner: { width: 60, height: 60, borderRadius: 30, backgroundColor: 'white' },
   scanningOverlay: { backgroundColor: 'rgba(0,0,0,0.7)', padding: 20, borderRadius: 15, alignItems: 'center' },
