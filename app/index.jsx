@@ -142,21 +142,39 @@ export default function App() {
         
         // 3. Handle the Result & Save to Firebase
         if (aiResult && aiResult.name && aiResult.name !== 'None' && aiResult.name.toLowerCase() !== 'unknown') {
-          // React Native's standard alert can use \n to create new lines!
-          alert(`🎉 Discovery: ${aiResult.name}!\n\n💡 Fun Fact: ${aiResult.fun_fact}`);
           
-          try {
-            await addDoc(collection(db, "capturedAnimals"), {
-              name: aiResult.name,
-              category: aiResult.category,
-              funFact: aiResult.fun_fact || "No fact available.", // Save the fact to the cloud!
-              timestamp: new Date(),
-              userId: user.uid
-            });
-            console.log("Successfully saved animal & fact to Firebase!");
-          } catch (e) {
-            console.error("Error saving to Firebase: ", e);
-            alert("Failed to save to database.");
+          const animalName = aiResult.name;
+          
+          // Check if they already caught it by looking at our local 'database' state
+          const alreadyCaught = database.some(a => a.name.toLowerCase() === animalName.toLowerCase() && a.isUnlocked);
+
+          if (alreadyCaught) {
+            // REPEATED ANIMAL: Just show the fact, no points, no database save
+            alert(`You already caught the ${animalName}!\n\n💡 Fun Fact: ${aiResult.fun_fact}`);
+          
+          } else {
+            // NEW ANIMAL: Calculate points
+            // Is it in our default hardcoded list? If yes = 5 pts. If no (dynamic) = 10 pts.
+            const isDefaultAnimal = REGION_ANIMALS.some(a => a.name.toLowerCase() === animalName.toLowerCase());
+            const pointsToAward = isDefaultAnimal ? 5 : 10;
+
+            alert(`🎉 New Discovery: ${animalName}!\n⭐ +${pointsToAward} Points!\n\n💡 Fun Fact: ${aiResult.fun_fact}`);
+            
+            try {
+              // Save to Firebase WITH the new points field
+              await addDoc(collection(db, "capturedAnimals"), {
+                name: animalName,
+                category: aiResult.category,
+                funFact: aiResult.fun_fact || "No fact available.",
+                points: pointsToAward, // Save the score!
+                timestamp: new Date(),
+                userId: user.uid
+              });
+              console.log(`Saved ${animalName} for ${pointsToAward} points!`);
+            } catch (e) {
+              console.error("Error saving to Firebase: ", e);
+              alert("Failed to save to database.");
+            }
           }
 
         } else {
@@ -191,13 +209,22 @@ export default function App() {
     </View>
   );
 
+  // Calculate total score (includes a fallback just in case old DB entries don't have the points field yet)
+  const totalScore = database
+    .filter(animal => animal.isUnlocked)
+    .reduce((sum, animal) => {
+      const fallbackPoints = REGION_ANIMALS.some(r => r.name.toLowerCase() === animal.name.toLowerCase()) ? 5 : 10;
+      return sum + (animal.points || fallbackPoints);
+    }, 0);
+
   return (
     <View style={styles.container}>
       {/* HEADER */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Eco-Hunter Dex</Text>
+        <Text style={styles.scoreText}>⭐ Total Score: {totalScore}</Text>
       </View>
-
+      
       {/* MAIN CONTENT AREA */}
       {activeTab === 'camera' ? (
         <View style={styles.cameraContainer}>
@@ -245,6 +272,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#1a1a1a' },
   header: { paddingTop: 60, paddingBottom: 20, backgroundColor: '#2c3e50', alignItems: 'center' },
   headerTitle: { color: 'white', fontSize: 24, fontWeight: 'bold' },
+  scoreText: { color: '#f1c40f', fontSize: 18, fontWeight: 'bold', marginTop: 5 },
   text: { color: 'white', textAlign: 'center', marginTop: 50 },
   button: { backgroundColor: '#27ae60', padding: 15, margin: 20, borderRadius: 10, alignItems: 'center' },
   buttonText: { color: 'white', fontWeight: 'bold' },
