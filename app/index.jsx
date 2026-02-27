@@ -92,9 +92,19 @@ export default function App() {
     try {
       const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-      const prompt = `You are an expert Malaysian wildlife biologist. Analyze this image. 
-      Identify the animal. If it matches one of these animals (Plantain Squirrel, Macaque, Monitor Lizard, Kingfisher), use that exact name. 
-      Return the result STRICTLY as a JSON object with two keys: 'name' (string) and 'category' (string: Mammal, Reptile, Bird, or Unknown). Do not include markdown formatting.`;
+      const prompt = `You are an elite wildlife biologist in Malaysia. 
+      Carefully analyze this smartphone photo. The image might be slightly blurry, shadowed, or taken from a distance.
+      Identify the primary animal in the frame. 
+      
+      CRITICAL RULE: If the animal even closely resembles one of these target species (Plantain Squirrel, Macaque, Monitor Lizard, Kingfisher), you MUST use that exact name.
+      If it is a completely different animal, identify it specifically (e.g., "Stray Cat", "Pigeon").
+      If there is absolutely no animal in the photo, set the name to "None".
+
+      Return the result STRICTLY as a JSON object with three keys: 
+      'name' (string), 
+      'category' (string: Mammal, Reptile, Bird, Insect, or Unknown), 
+      'fun_fact' (string: a short, fascinating 1-sentence ecological fact about this animal). 
+      Output ONLY valid JSON. Do not include markdown formatting like \`\`\`json.`;
 
       const imagePart = {
         inlineData: {
@@ -125,25 +135,25 @@ export default function App() {
       
       try {
         // 1. Take the picture
-        const photo = await cameraRef.current.takePictureAsync({ quality: 0.5, base64: true });
+        const photo = await cameraRef.current.takePictureAsync({ quality: 0.8, base64: true });
         
         // 2. Send to Gemini
         const aiResult = await analyzeImageWithGemini(photo.base64);
         
         // 3. Handle the Result & Save to Firebase
-        // 3. Handle the Result & Save to Firebase
-        // Make sure it found a name, and that the name isn't just "Unknown"
-        if (aiResult && aiResult.name && aiResult.name.toLowerCase() !== 'unknown') {
-          alert(`New Discovery! Google AI Identified: ${aiResult.name}!`);
+        if (aiResult && aiResult.name && aiResult.name !== 'None' && aiResult.name.toLowerCase() !== 'unknown') {
+          // React Native's standard alert can use \n to create new lines!
+          alert(`🎉 Discovery: ${aiResult.name}!\n\n💡 Fun Fact: ${aiResult.fun_fact}`);
           
           try {
             await addDoc(collection(db, "capturedAnimals"), {
               name: aiResult.name,
               category: aiResult.category,
+              funFact: aiResult.fun_fact || "No fact available.", // Save the fact to the cloud!
               timestamp: new Date(),
               userId: user.uid
             });
-            console.log("Successfully saved dynamic animal to Firebase!");
+            console.log("Successfully saved animal & fact to Firebase!");
           } catch (e) {
             console.error("Error saving to Firebase: ", e);
             alert("Failed to save to database.");
