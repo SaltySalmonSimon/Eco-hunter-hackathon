@@ -41,3 +41,16 @@ To run this project locally on your machine, follow these steps:
 ```bash
 git clone [https://github.com/YOUR-USERNAME/YOUR-REPO-NAME.git](https://github.com/YOUR-USERNAME/YOUR-REPO-NAME.git)
 cd YOUR-REPO-NAME
+
+### 2. Install Dependencies
+npm install
+
+### 3. Configure Environment Variables
+1. Create a file named exactly .env.
+2. Add the following lines, replacing the placeholder text with your actual keys:
+EXPO_PUBLIC_GEMINI_API_KEY=your_gemini_api_key_here
+
+### 4. Run The Application
+npx expo start -c
+Public Wi-Fi network: You may need to run the tunnel command instead: npx expo start -c --tunnel.
+To test on a physical phone: Scan the QR code shown in your terminal using the Expo Go app.
