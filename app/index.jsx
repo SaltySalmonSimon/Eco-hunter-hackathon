@@ -35,7 +35,7 @@ const MASTER_ECO_DEX = [
   { id: 22, name: 'Eagle', category: 'Avian', imageUri: 'https://img.icons8.com/?size=100&id=yb7r2rdbifEu&format=png&color=000000' },
   { id: 23, name: 'Parrot', category: 'Avian', imageUri: 'https://img.icons8.com/color/96/parrot.png' },
   { id: 24, name: 'Penguin', category: 'Avian', imageUri: 'https://img.icons8.com/?size=100&id=GLNXrevIGCZO&format=png&color=000000' },
-  { id: 25, name: 'Ostrich', category: 'Avian', imageUri: 'https://img.icons8.com/color/96/ostrich.png' },
+  { id: 25, name: 'Ostrich', category: 'Avian', imageUri: 'https://img.icons8.com/?size=100&id=UOOktdYeFkNo&format=png&color=000000' },
   // REPTILES
   { id: 26, name: 'Lizard', category: 'Reptile', imageUri: 'https://img.icons8.com/color/96/lizard.png' },
   { id: 27, name: 'Snake', category: 'Reptile', imageUri: 'https://img.icons8.com/color/96/snake.png' },
@@ -74,12 +74,12 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('camera'); 
   
   const [database, setDatabase] = useState(MASTER_ECO_DEX); 
+  const [leaderboard, setLeaderboard] = useState([]); 
   const [isScanning, setIsScanning] = useState(false);
   const cameraRef = useRef(null);
 
   const [selectedAnimal, setSelectedAnimal] = useState(null);
   
-  // NEW: Daily Mission State
   const [missionProgress, setMissionProgress] = useState({ avian: 0, insect: 0 });
   const [missionCompleted, setMissionCompleted] = useState(false);
 
@@ -95,7 +95,7 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // 2. Data Compiler (The Brain that builds the Inventory)
+  // 2. Data Compiler (The Brain that builds the Inventory AND Firebase Leaderboard)
   useEffect(() => {
     if (!user) return; 
 
@@ -103,29 +103,57 @@ export default function App() {
     
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const allDocs = snapshot.docs.map(doc => doc.data());
-      
-      // Filter out just YOUR captures
       const myCaptures = allDocs.filter(doc => doc.userId === user.uid);
 
-      // Calculate Global Stats (Count UNIQUE users per base animal)
+      // --- THE REAL FIREBASE LEADERBOARD ---
+      const userScores = {};
+      const userNames = {}; 
+
+      // Check if current user has already claimed the daily mission in the cloud
+      const hasClaimedMission = myCaptures.some(doc => doc.baseName === "Daily Mission Bonus");
+      if (hasClaimedMission) setMissionCompleted(true);
+
+      // 1. Loop through every animal ever caught by anyone
+      allDocs.forEach(doc => {
+        const uid = doc.userId;
+        if (!uid) return;
+        
+        // 2. Set up their profile in our temporary memory
+        if (!userScores[uid]) {
+          userScores[uid] = 0;
+          userNames[uid] = doc.userName || `Hunter-${uid.substring(0, 4)}`;
+        }
+        
+        // 3. Add the points of this catch to their total!
+        userScores[uid] += (doc.points || 0); 
+      });
+
+      // 4. Convert our memory into a sorted array
+      const realRankedPlayers = Object.keys(userScores).map(uid => ({
+        id: uid,
+        name: userNames[uid], 
+        score: userScores[uid]
+      })).sort((a, b) => b.score - a.score);
+
+      setLeaderboard(realRankedPlayers);
+      // ---------------------------------------------
+
+      // Calculate Global Stats
       const communityStats = {};
       allDocs.forEach(doc => {
         const bName = doc.baseName ? doc.baseName.toLowerCase() : (doc.name ? doc.name.toLowerCase() : null);
-        if (!bName) return; 
+        if (!bName || bName === 'daily mission bonus') return; 
         if (!communityStats[bName]) communityStats[bName] = new Set();
         communityStats[bName].add(doc.userId || Math.random().toString());
       });
 
-      // Build the base 50 animals with INVENTORY data
+      // Build the base 50 animals
       const updatedDex = MASTER_ECO_DEX.map(animal => {
-        // Find all your specific catches that match this base animal
         const catchesForThisAnimal = myCaptures.filter(doc => 
           (doc.baseName || doc.name || "").toLowerCase() === animal.name.toLowerCase()
         );
         
         const isUnlocked = catchesForThisAnimal.length > 0;
-        
-        // Extract just the specific breed names, and remove duplicates using a Set
         const specificBreedsFound = [...new Set(catchesForThisAnimal.map(doc => doc.specificName || doc.name))].filter(Boolean);
 
         return {
@@ -138,10 +166,10 @@ export default function App() {
         }
       });
 
-      // Handle Dynamic Discoveries (Things outside the base 50)
+      // Handle Dynamic Discoveries
       const masterNames = MASTER_ECO_DEX.map(a => a.name.toLowerCase());
       const dynamicDiscoveries = myCaptures
-        .filter(doc => !masterNames.includes((doc.baseName || doc.name || "").toLowerCase()))
+        .filter(doc => !masterNames.includes((doc.baseName || doc.name || "").toLowerCase()) && doc.baseName !== "Daily Mission Bonus")
         .filter((value, index, self) => index === self.findIndex((t) => (t.baseName || t.name).toLowerCase() === (value.baseName || value.name).toLowerCase()))
         .map((doc, index) => {
           const bName = doc.baseName || doc.name;
@@ -216,7 +244,8 @@ export default function App() {
           const isBaseAnimal = MASTER_ECO_DEX.some(a => a.name.toLowerCase() === bName.toLowerCase());
           const pointsToAward = isBaseAnimal ? 10 : 20;
 
-          // Always allow the catch to build inventory!
+          const currentUserDisplayName = user.displayName || (user.email ? user.email.split('@')[0] : `Hunter-${user.uid.substring(0,4)}`);
+
           alert(`📸 Captured: ${sName}!\n⭐ +${pointsToAward} Points!\n\n💡 Fun Fact: ${aiResult.fun_fact}`);
           
           try {
@@ -227,7 +256,8 @@ export default function App() {
               funFact: aiResult.fun_fact || "No fact available.",
               points: pointsToAward, 
               timestamp: new Date(),
-              userId: user.uid
+              userId: user.uid,
+              userName: currentUserDisplayName
             });
 
             // --- DAILY MISSION LOGIC ---
@@ -247,6 +277,19 @@ export default function App() {
               setMissionProgress(updatedProgress);
               if (updatedProgress.avian >= 1 && updatedProgress.insect >= 1 && !missionCompleted) {
                 setMissionCompleted(true);
+                
+                // Save the Mission Bonus to Firebase so the Leaderboard is 100% accurate!
+                await addDoc(collection(db, "capturedAnimals"), {
+                  baseName: "Daily Mission Bonus",
+                  specificName: "Sky & Soil Completed",
+                  category: "Bonus",
+                  funFact: "Great job completing your daily research!",
+                  points: 50,
+                  timestamp: new Date(),
+                  userId: user.uid,
+                  userName: currentUserDisplayName
+                });
+
                 setTimeout(() => alert("🎉 DAILY MISSION COMPLETE! +50 Bonus Points!"), 500);
               } else {
                 setTimeout(() => alert(`🎯 Mission Progress Update!\nBirds: ${updatedProgress.avian}/1 | Insects: ${updatedProgress.insect}/1`), 500);
@@ -300,24 +343,30 @@ export default function App() {
   };
 
   if (!permission) return <View />;
-  if (!permission.granted) { /* Keep basic permission UI */ }
+  if (!permission.granted) { 
+    return (
+      <View style={styles.container}>
+        <Text style={{color: 'white', textAlign: 'center', marginTop: 100}}>We need your permission to use the camera</Text>
+        <TouchableOpacity style={styles.primaryButton} onPress={requestPermission}>
+          <Text style={styles.primaryButtonText}>Grant Permission</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
-  // Calculate Total Score including Mission Bonus
-  const totalScore = database.filter(animal => animal.isUnlocked).reduce((sum, animal) => {
-    const isDynamic = String(animal.id).startsWith('new');
-    return sum + (isDynamic ? 20 : 10);
-  }, 0) + (missionCompleted ? 50 : 0);
+  // Your personal score is drawn directly from the live Firebase leaderboard calculation
+  const myTotalScore = leaderboard.find(player => player.id === user?.uid)?.score || 0;
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Eco-Dex</Text>
-        <Text style={styles.scoreText}>⭐ Score: {totalScore}</Text>
+        <Text style={styles.scoreText}>⭐ Score: {myTotalScore}</Text>
       </View>
       
-      {activeTab === 'camera' ? (
+      {/* --- TAB 1: CAMERA --- */}
+      {activeTab === 'camera' && (
         <View style={styles.cameraContainer}>
-          {/* DAILY MISSION BANNER */}
           <View style={styles.missionBanner}>
             <Text style={styles.missionTitle}>🎯 Daily Mission: Sky & Soil</Text>
             <Text style={styles.missionText}>
@@ -342,7 +391,10 @@ export default function App() {
             )}
           </View>
         </View>
-      ) : (
+      )}
+
+      {/* --- TAB 2: ECO-DEX --- */}
+      {activeTab === 'ecodex' && (
         <FlatList
           data={database}
           renderItem={renderAnimalCard}
@@ -352,29 +404,45 @@ export default function App() {
         />
       )}
 
+      {/* --- TAB 3: LEADERBOARD --- */}
+      {activeTab === 'leaderboard' && (
+        <View style={styles.leaderboardContainer}>
+           <Text style={styles.leaderboardTitle}>🏆 Global Rankings</Text>
+           <FlatList
+              data={leaderboard}
+              keyExtractor={item => item.id}
+              contentContainerStyle={{ paddingBottom: 20 }}
+              renderItem={({item, index}) => (
+                 <View style={[styles.leaderboardRow, item.id === user?.uid && styles.leaderboardRowMe]}>
+                    <Text style={styles.rankText}>#{index + 1}</Text>
+                    <Text style={styles.hunterNameText}>
+                      {item.id === user?.uid ? `${item.name} (You)` : item.name}
+                    </Text>
+                    <Text style={styles.hunterScoreText}>{item.score} pts</Text>
+                 </View>
+              )}
+           />
+        </View>
+      )}
+
       {/* THE ANIMAL DETAIL MODAL WITH INVENTORY */}
       <Modal visible={!!selectedAnimal} transparent={true} animationType="slide">
         {selectedAnimal && (
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
-              
               <TouchableOpacity style={styles.closeButton} onPress={() => setSelectedAnimal(null)}>
                 <Text style={styles.closeButtonText}>✕</Text>
               </TouchableOpacity>
-
               <View style={styles.modalImageContainer}>
                 <Image source={{ uri: selectedAnimal.imageUri }} style={[styles.modalImage, !selectedAnimal.isUnlocked && styles.silhouette]} />
               </View>
-
               <Text style={styles.modalName}>{selectedAnimal.name}</Text>
               <Text style={styles.modalCategory}>{selectedAnimal.category}</Text>
-              
               <View style={styles.statusBadge}>
                 <Text style={styles.statusText}>
                   {selectedAnimal.isUnlocked ? "✅ UNLOCKED" : "🔒 LOCKED"}
                 </Text>
               </View>
-
               <ScrollView style={styles.modalScrollArea}>
                 <View style={styles.factContainer}>
                   <Text style={styles.factTitle}>Eco-Fact:</Text>
@@ -382,35 +450,34 @@ export default function App() {
                     {selectedAnimal.funFact}
                   </Text>
                 </View>
-
-                {/* THE NEW COLLECTION INVENTORY */}
                 <View style={styles.inventoryContainer}>
                   <Text style={styles.inventoryTitle}>
                     🎒 Your Collection ({selectedAnimal.catchCount || 0} caught)
                   </Text>
                   {selectedAnimal.catchCount > 0 ? (
                     selectedAnimal.inventory.map((breedName, index) => (
-                      <Text key={index} style={styles.inventoryItem}>
-                        • {breedName}
-                      </Text>
+                      <Text key={index} style={styles.inventoryItem}>• {breedName}</Text>
                     ))
                   ) : (
                     <Text style={styles.inventoryItem}>No specific species found yet.</Text>
                   )}
                 </View>
               </ScrollView>
-
             </View>
           </View>
         )}
       </Modal>
 
+      {/* NAVIGATION BAR */}
       <View style={styles.navBar}>
         <TouchableOpacity style={[styles.navItem, activeTab === 'camera' && styles.navItemActive]} onPress={() => setActiveTab('camera')}>
           <Text style={styles.navText}>Scanner</Text>
         </TouchableOpacity>
         <TouchableOpacity style={[styles.navItem, activeTab === 'ecodex' && styles.navItemActive]} onPress={() => setActiveTab('ecodex')}>
-          <Text style={styles.navText}>Eco-Dex ({database.filter(a => a.isUnlocked).length}/{database.length})</Text>
+          <Text style={styles.navText}>Eco-Dex</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.navItem, activeTab === 'leaderboard' && styles.navItemActive]} onPress={() => setActiveTab('leaderboard')}>
+          <Text style={styles.navText}>Rankings</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -430,7 +497,6 @@ const styles = StyleSheet.create({
   scanningOverlay: { backgroundColor: 'rgba(0,0,0,0.8)', padding: 20, borderRadius: 15, alignItems: 'center' },
   scanningText: { color: '#00ff00', marginTop: 10, fontWeight: 'bold', letterSpacing: 1 },
 
-  // Mission Banner Styles
   missionBanner: { position: 'absolute', top: 20, left: 20, right: 20, backgroundColor: 'rgba(44, 62, 80, 0.9)', padding: 15, borderRadius: 15, zIndex: 20, borderWidth: 2, borderColor: '#27ae60', alignItems: 'center', elevation: 5 },
   missionTitle: { color: '#f1c40f', fontWeight: '900', fontSize: 16, marginBottom: 5 },
   missionText: { color: 'white', fontSize: 14, fontWeight: 'bold' },
@@ -449,12 +515,19 @@ const styles = StyleSheet.create({
   communityText: { color: '#3498db', fontSize: 11, fontWeight: 'bold' },
   communityBadge: { backgroundColor: 'rgba(52, 152, 219, 0.2)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, marginTop: 8 },
 
+  leaderboardContainer: { flex: 1, padding: 20, backgroundColor: '#1a1a1a' },
+  leaderboardTitle: { fontSize: 22, color: '#f1c40f', fontWeight: '900', textAlign: 'center', marginBottom: 20, letterSpacing: 1 },
+  leaderboardRow: { flexDirection: 'row', backgroundColor: '#2c3e50', padding: 15, borderRadius: 12, marginBottom: 10, alignItems: 'center', elevation: 3 },
+  leaderboardRowMe: { borderWidth: 2, borderColor: '#27ae60', backgroundColor: '#1e3329' },
+  rankText: { color: '#95a5a6', fontSize: 18, fontWeight: '900', width: 40 },
+  hunterNameText: { color: 'white', fontSize: 16, fontWeight: 'bold', flex: 1 },
+  hunterScoreText: { color: '#2ecc71', fontSize: 18, fontWeight: '900' },
+
   navBar: { flexDirection: 'row', backgroundColor: '#2c3e50', paddingBottom: 30, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#34495e' },
   navItem: { flex: 1, alignItems: 'center', paddingVertical: 10 },
   navItemActive: { borderBottomWidth: 3, borderBottomColor: '#27ae60' },
   navText: { color: 'white', fontWeight: 'bold' },
 
-  // Modal Styles
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', alignItems: 'center', padding: 20 },
   modalContent: { width: '100%', maxHeight: '85%', backgroundColor: '#2c3e50', borderRadius: 20, padding: 20, alignItems: 'center', elevation: 10, position: 'relative' },
   closeButton: { position: 'absolute', top: 15, right: 15, zIndex: 10, backgroundColor: 'rgba(255,255,255,0.1)', width: 35, height: 35, borderRadius: 17.5, justifyContent: 'center', alignItems: 'center' },
@@ -466,13 +539,12 @@ const styles = StyleSheet.create({
   statusBadge: { backgroundColor: 'rgba(39, 174, 96, 0.2)', paddingHorizontal: 15, paddingVertical: 5, borderRadius: 15, marginBottom: 20 },
   statusText: { color: '#2ecc71', fontWeight: 'bold', fontSize: 12 },
   modalScrollArea: { width: '100%' },
-  
   factContainer: { width: '100%', backgroundColor: 'rgba(0,0,0,0.2)', padding: 15, borderRadius: 10, marginBottom: 15 },
   factTitle: { color: '#3498db', fontWeight: 'bold', marginBottom: 5 },
   factText: { color: 'white', fontSize: 15, lineHeight: 22 },
-  
-  // Inventory Styles
   inventoryContainer: { width: '100%', backgroundColor: 'rgba(0,0,0,0.2)', padding: 15, borderRadius: 10 },
   inventoryTitle: { color: '#f39c12', fontWeight: 'bold', marginBottom: 10, fontSize: 16 },
-  inventoryItem: { color: 'white', fontSize: 14, marginBottom: 5, marginLeft: 5 }
+  inventoryItem: { color: 'white', fontSize: 14, marginBottom: 5, marginLeft: 5 },
+  primaryButton: { backgroundColor: '#27ae60', padding: 15, borderRadius: 10, alignItems: 'center', marginTop: 10, alignSelf: 'center' },
+  primaryButtonText: { color: 'white', fontWeight: 'bold', fontSize: 18 }
 });
