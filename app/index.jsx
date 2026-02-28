@@ -80,8 +80,10 @@ export default function App() {
 
   const [selectedAnimal, setSelectedAnimal] = useState(null);
   
-  const [missionProgress, setMissionProgress] = useState({ avian: 0, insect: 0 });
+  const [dailyTargets, setDailyTargets] = useState([]);
+  const [missionProgress, setMissionProgress] = useState([]); // Stores names of targets caught today
   const [missionCompleted, setMissionCompleted] = useState(false);
+  const [isMissionExpanded, setIsMissionExpanded] = useState(false);
 
   // 1. Authenticate User
   useEffect(() => {
@@ -93,6 +95,18 @@ export default function App() {
       }
     });
     return () => unsubscribe();
+  }, []);
+
+  // 1.5 Generate Today's Random Mission Bounties
+  useEffect(() => {
+    // Math trick: Use the day of the year so everyone gets the same targets today!
+    const today = new Date();
+    const dayOfYear = Math.floor((today - new Date(today.getFullYear(), 0, 0)) / 1000 / 60 / 60 / 24);
+    
+    const target1 = MASTER_ECO_DEX[dayOfYear % MASTER_ECO_DEX.length].name;
+    const target2 = MASTER_ECO_DEX[(dayOfYear + 15) % MASTER_ECO_DEX.length].name; // Offset to ensure they are different
+    
+    setDailyTargets([target1, target2]);
   }, []);
 
   // 2. Data Compiler (The Brain that builds the Inventory AND Firebase Leaderboard)
@@ -109,9 +123,28 @@ export default function App() {
       const userScores = {};
       const userNames = {}; 
 
-      // Check if current user has already claimed the daily mission in the cloud
-      const hasClaimedMission = myCaptures.some(doc => doc.baseName === "Daily Mission Bonus");
-      if (hasClaimedMission) setMissionCompleted(true);
+      // --- THE DAILY RESET & PROGRESS RESTORE ---
+      // 1. Get ONLY the animals this user caught TODAY
+      const todayString = new Date().toDateString();
+      const todaysCaptures = myCaptures.filter(doc => {
+        if (!doc.timestamp) return false;
+        // Handle both Firebase Timestamp and native JS Date objects
+        const dateObj = doc.timestamp.toDate ? doc.timestamp.toDate() : new Date(doc.timestamp);
+        return dateObj.toDateString() === todayString;
+      });
+
+      // 2. Did they claim the bonus today?
+      const hasClaimedToday = todaysCaptures.some(doc => doc.baseName === "Daily Mission Bonus");
+      
+      if (hasClaimedToday && !missionCompleted) {
+        setMissionCompleted(true);
+        setIsMissionExpanded(false); // Auto-hide the banner if they log in and it's already done!
+      } else if (!hasClaimedToday) {
+        setMissionCompleted(false);
+      }
+
+      // 3. Restore the 1/1 numbers based on what they caught today!
+      setMissionProgress(todaysCaptures.map(doc => doc.baseName));
 
       // 1. Loop through every animal ever caught by anyone
       allDocs.forEach(doc => {
@@ -260,39 +293,34 @@ export default function App() {
               userName: currentUserDisplayName
             });
 
-            // --- DAILY MISSION LOGIC ---
-            let updatedProgress = { ...missionProgress };
-            let madeProgress = false;
-            const scannedCategory = aiResult.category.toLowerCase();
-
-            if (scannedCategory === 'avian' && updatedProgress.avian < 1) {
-              updatedProgress.avian += 1;
-              madeProgress = true;
-            } else if (scannedCategory === 'insect' && updatedProgress.insect < 1) {
-              updatedProgress.insect += 1;
-              madeProgress = true;
-            }
-
-            if (madeProgress) {
-              setMissionProgress(updatedProgress);
-              if (updatedProgress.avian >= 1 && updatedProgress.insect >= 1 && !missionCompleted) {
-                setMissionCompleted(true);
+            // --- DAILY MISSION LOGIC (2 Random Targets) ---
+            // Check if the animal they just scanned is one of today's targets
+            if (!missionCompleted && dailyTargets.includes(bName)) {
+              
+              // Make sure they haven't already caught this specific target today
+              if (!missionProgress.includes(bName)) {
+                const updatedProgress = [...missionProgress, bName];
+                setMissionProgress(updatedProgress);
                 
-                // Save the Mission Bonus to Firebase so the Leaderboard is 100% accurate!
-                await addDoc(collection(db, "capturedAnimals"), {
-                  baseName: "Daily Mission Bonus",
-                  specificName: "Sky & Soil Completed",
-                  category: "Bonus",
-                  funFact: "Great job completing your daily research!",
-                  points: 50,
-                  timestamp: new Date(),
-                  userId: user.uid,
-                  userName: currentUserDisplayName
-                });
+                if (updatedProgress.length >= 2) {
+                  setMissionCompleted(true);
+                  
+                  // Save the Mission Bonus to Firebase
+                  await addDoc(collection(db, "capturedAnimals"), {
+                    baseName: "Daily Mission Bonus",
+                    specificName: `Found ${dailyTargets[0]} & ${dailyTargets[1]}`,
+                    category: "Bonus",
+                    funFact: "Awesome job tracking down today's targets!",
+                    points: 50,
+                    timestamp: new Date(),
+                    userId: user.uid,
+                    userName: currentUserDisplayName
+                  });
 
-                setTimeout(() => alert("🎉 DAILY MISSION COMPLETE! +50 Bonus Points!"), 500);
-              } else {
-                setTimeout(() => alert(`🎯 Mission Progress Update!\nBirds: ${updatedProgress.avian}/1 | Insects: ${updatedProgress.insect}/1`), 500);
+                  setTimeout(() => alert("🎉 DAILY MISSION COMPLETE! +50 Bonus Points!"), 500);
+                } else {
+                  setTimeout(() => alert(`🎯 Mission Update!\nYou found the ${bName}! Just 1 more target to go.`), 500);
+                }
               }
             }
 
@@ -351,7 +379,7 @@ export default function App() {
           <Text style={styles.primaryButtonText}>Grant Permission</Text>
         </TouchableOpacity>
       </View>
-    );
+    ); // <-- This was missing a closing bracket in your code!
   }
 
   // Your personal score is drawn directly from the live Firebase leaderboard calculation
@@ -364,19 +392,36 @@ export default function App() {
         <Text style={styles.scoreText}>⭐ Score: {myTotalScore}</Text>
       </View>
       
+      {/* --- FLOATING MISSION DROPDOWN (TOP LEFT) --- */}
+      <View style={styles.floatingMissionContainer}>
+        <TouchableOpacity 
+          style={styles.missionToggleButton} 
+          onPress={() => setIsMissionExpanded(!isMissionExpanded)}
+        >
+          <Text style={styles.missionToggleIcon}>🎯 {missionCompleted ? '✅' : 'Bounties'}</Text>
+        </TouchableOpacity>
+
+        {isMissionExpanded && (
+          <View style={styles.missionDropdownCard}>
+            <Text style={styles.missionTitle}>Today's Targets</Text>
+            {dailyTargets.length > 0 && (
+              <Text style={styles.missionText}>
+                • {dailyTargets[0]} ({missionCompleted || missionProgress.includes(dailyTargets[0]) ? "1" : "0"}/1){"\n"}
+                • {dailyTargets[1]} ({missionCompleted || missionProgress.includes(dailyTargets[1]) ? "1" : "0"}/1)
+              </Text>
+            )}
+            {missionCompleted ? (
+              <Text style={styles.missionCompleteText}>✅ +50 Points Claimed!</Text>
+            ) : (
+              <Text style={styles.missionPendingText}>Reward: 50 Points</Text>
+            )}
+          </View>
+        )}
+      </View>
+
       {/* --- TAB 1: CAMERA --- */}
       {activeTab === 'camera' && (
         <View style={styles.cameraContainer}>
-          <View style={styles.missionBanner}>
-            <Text style={styles.missionTitle}>🎯 Daily Mission: Sky & Soil</Text>
-            <Text style={styles.missionText}>
-              Scan 1 Bird ({missionProgress.avian}/1) & 1 Insect ({missionProgress.insect}/1)
-            </Text>
-            {missionCompleted && (
-              <Text style={styles.missionCompleteText}>✅ Completed! +50 Points</Text>
-            )}
-          </View>
-
           <CameraView style={StyleSheet.absoluteFillObject} facing="back" ref={cameraRef} />
           <View style={styles.cameraUI}>
             {isScanning ? (
@@ -497,10 +542,14 @@ const styles = StyleSheet.create({
   scanningOverlay: { backgroundColor: 'rgba(0,0,0,0.8)', padding: 20, borderRadius: 15, alignItems: 'center' },
   scanningText: { color: '#00ff00', marginTop: 10, fontWeight: 'bold', letterSpacing: 1 },
 
-  missionBanner: { position: 'absolute', top: 20, left: 20, right: 20, backgroundColor: 'rgba(44, 62, 80, 0.9)', padding: 15, borderRadius: 15, zIndex: 20, borderWidth: 2, borderColor: '#27ae60', alignItems: 'center', elevation: 5 },
-  missionTitle: { color: '#f1c40f', fontWeight: '900', fontSize: 16, marginBottom: 5 },
-  missionText: { color: 'white', fontSize: 14, fontWeight: 'bold' },
-  missionCompleteText: { color: '#2ecc71', fontSize: 14, fontWeight: '900', marginTop: 5, backgroundColor: 'rgba(46, 204, 113, 0.2)', paddingHorizontal: 10, paddingVertical: 3, borderRadius: 10 },
+  floatingMissionContainer: { position: 'absolute', top: 55, left: 15, zIndex: 100, alignItems: 'flex-start' },
+  missionToggleButton: { backgroundColor: '#2c3e50', paddingVertical: 8, paddingHorizontal: 15, borderRadius: 20, borderWidth: 2, borderColor: '#27ae60', elevation: 5 },
+  missionToggleIcon: { color: 'white', fontSize: 14, fontWeight: 'bold' },
+  missionDropdownCard: { marginTop: 10, backgroundColor: 'rgba(44, 62, 80, 0.95)', padding: 15, borderRadius: 15, borderWidth: 2, borderColor: '#27ae60', minWidth: 200, elevation: 10 },
+  missionTitle: { color: '#f1c40f', fontWeight: '900', fontSize: 14, marginBottom: 8, borderBottomWidth: 1, borderBottomColor: '#34495e', paddingBottom: 5 },
+  missionText: { color: 'white', fontSize: 13, fontWeight: 'bold', lineHeight: 22 },
+  missionCompleteText: { color: '#2ecc71', fontSize: 12, fontWeight: '900', marginTop: 10, backgroundColor: 'rgba(46, 204, 113, 0.2)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, alignSelf: 'flex-start' },
+  missionPendingText: { color: '#bdc3c7', fontSize: 12, fontStyle: 'italic', marginTop: 10 },
 
   pokedexList: { padding: 10 },
   card: { flex: 1, backgroundColor: '#2c3e50', margin: 5, borderRadius: 12, padding: 10, alignItems: 'center', elevation: 5 },
