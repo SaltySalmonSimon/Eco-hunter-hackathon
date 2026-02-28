@@ -1,4 +1,4 @@
-# 🌿 WildLens (EcoHunter Dex)
+# EcoHunter 🦖
 
 ![React Native](https://img.shields.io/badge/React_Native-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)
 ![Expo](https://img.shields.io/badge/Expo-1B1F23?style=for-the-badge&logo=expo&logoColor=white)
@@ -6,7 +6,7 @@
 ![Gemini AI](https://img.shields.io/badge/Google_Gemini-8E75B2?style=for-the-badge&logo=google&logoColor=white)
 
 ## 📖 Project Overview
-**WildLens** is a gamified, AI-powered mobile application designed to reconnect people with local biodiversity. By transforming the outdoors into a real-world "Eco-Dex," users are encouraged to explore their environment, photograph local wildlife, and dynamically learn about the ecosystems around them. 
+**EcoHunter** is a gamified, AI-powered mobile application designed to reconnect people with local biodiversity. By transforming the outdoors into a real-world "Eco-Dex," users are encouraged to explore their environment, photograph local wildlife, and dynamically learn about the ecosystems around them. 
 
 ### ✨ Key Features
 * 📸 **AI Species Identification:** Uses Google's Gemini 2.5 Flash multimodal AI to analyze photos and identify species in real-time.
