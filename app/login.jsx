@@ -50,7 +50,7 @@ export default function LoginScreen() {
       {!isLoginMode && (
         <TextInput 
           style={styles.input} 
-          placeholder="Choose a Username" 
+          placeholder="Username" 
           placeholderTextColor="#bdc3c7"
           value={username} 
           onChangeText={setUsername} 
