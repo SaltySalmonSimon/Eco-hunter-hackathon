@@ -1,50 +1,56 @@
-# Welcome to your Expo app 👋
+# 🌿 WildLens (EcoHunter Dex)
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+![React Native](https://img.shields.io/badge/React_Native-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)
+![Expo](https://img.shields.io/badge/Expo-1B1F23?style=for-the-badge&logo=expo&logoColor=white)
+![Firebase](https://img.shields.io/badge/firebase-ffca28?style=for-the-badge&logo=firebase&logoColor=black)
+![Gemini AI](https://img.shields.io/badge/Google_Gemini-8E75B2?style=for-the-badge&logo=google&logoColor=white)
 
-## Get started
+## 📖 Project Overview
+**WildLens** is a gamified, AI-powered mobile application designed to reconnect people with local biodiversity. By transforming the outdoors into a real-world "Eco-Dex," users are encouraged to explore their environment, photograph local wildlife, and dynamically learn about the ecosystems around them. 
 
-1. Install dependencies
+### ✨ Key Features
+* 📸 **AI Species Identification:** Uses Google's Gemini 2.5 Flash multimodal AI to analyze photos and identify species in real-time.
+* 📖 **Infinite Dynamic Eco-Dex:** A local database of 50 base animals, plus the ability for the AI to dynamically generate brand new cards for rare, undocumented species.
+* 🏆 **Global Leaderboard:** Real-time scoring system powered by Firebase, ranking players based on their discoveries.
+* 🎯 **Daily Bounties:** Auto-generated daily missions that challenge users to find specific wildlife for bonus points.
+* 💡 **Educational Micro-Learning:** Generates dynamic, contextual ecological fun facts for every successful capture.
 
-   ```bash
-   npm install
-   ```
+---
 
-2. Start the app
+## 🌍 Problem-Solution Alignment & SDGs
+* **The Problem:** In an increasingly urbanized world, there is a growing disconnect between the general public and local wildlife. Traditional conservation education often fails to engage younger demographics.
+* **The Solution:** WildLens tackles this by turning nature exploration into a multiplayer game, rewarding users with points and unique knowledge for exploring their environment.
 
-   ```bash
-   npx expo start
-   ```
+**Supported UN Sustainable Development Goals:**
+* **SDG 15 (Life on Land):** Fosters a grassroots appreciation for biodiversity and habitat preservation.
+* **SDG 4 (Quality Education):** Provides on-demand, AI-driven educational facts in the field.
 
-In the output, you'll find options to open the app in a
+---
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+## 🛠️ Setup & Installation Instructions
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+To run this project locally on your machine, follow these steps:
 
-## Get a fresh project
+### Prerequisites
+* [Node.js](https://nodejs.org/) installed on your machine.
+* A mobile device with the **Expo Go** app installed (available on iOS and Android), or a local emulator.
+* A [Google Gemini API Key](https://aistudio.google.com/).
+* A Firebase Project with Firestore and Authentication (Email/Password) enabled.
 
-When you're ready, run:
-
+### 1. Clone the Repository
 ```bash
-npm run reset-project
+git clone https://github.com/SaltySalmonSimon/Eco-hunter-hackathon.git
+cd YOUR-REPO-NAME
 ```
+### 2. Install Dependencies
+npm install
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+### 3. Configure Environment Variables
+1. Create a file named exactly .env.
+2. Add the following lines, replacing the placeholder text with your actual keys:
+EXPO_PUBLIC_GEMINI_API_KEY=your_gemini_api_key_here
 
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+### 4. Run The Application
+npx expo start -c
+Public Wi-Fi network: You may need to run the tunnel command instead: npx expo start -c --tunnel.
+To test on a physical phone: Scan the QR code shown in your terminal using the Expo Go app.
