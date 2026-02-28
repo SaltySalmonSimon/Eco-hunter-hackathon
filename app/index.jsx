@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { auth, db } from '../firebase-config';
 
-// --- THE MASTER ECO-DEX DATABASE (50 ANIMALS) ---
+// master eco-dex database (50 animals)
 const MASTER_ECO_DEX = [
   // MAMMALS
   { id: 1, name: 'Dog', category: 'Mammal', imageUri: 'https://img.icons8.com/color/96/dog.png' },
@@ -87,11 +87,11 @@ export default function App() {
   const [selectedAnimal, setSelectedAnimal] = useState(null);
   
   const [dailyTargets, setDailyTargets] = useState([]);
-  const [missionProgress, setMissionProgress] = useState([]); // Stores names of targets caught today
+  const [missionProgress, setMissionProgress] = useState([]); // stores names of targets caught today
   const [missionCompleted, setMissionCompleted] = useState(false);
   const [isMissionExpanded, setIsMissionExpanded] = useState(false);
 
-  // 1. Authenticate User
+  // 1. authenticate user
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       if (!currentUser) {
@@ -103,12 +103,12 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // 1.5 Generate Today's Random Mission Bounties (Easy Mode!)
+  // 1.5 generate today's random mission bounties 
   useEffect(() => {
     const today = new Date();
     const dayOfYear = Math.floor((today - new Date(today.getFullYear(), 0, 0)) / 1000 / 60 / 60 / 24);
     
-    // Pick from the easy-to-find list instead of the entire Eco-Dex!
+    // pick from the easy-to-find list instead of the entire Eco-Dex
     const target1 = COMMON_ANIMALS[dayOfYear % COMMON_ANIMALS.length];
     
     // Use an offset (like +5) to ensure target2 is always a different animal
@@ -117,7 +117,7 @@ export default function App() {
     setDailyTargets([target1, target2]);
   }, []);
 
-  // 2. Data Compiler (The Brain that builds the Inventory AND Firebase Leaderboard)
+  // 2. data compiler (brain that builds the inventory and firebase leaderboard)
   useEffect(() => {
     if (!user) return; 
 
@@ -127,49 +127,49 @@ export default function App() {
       const allDocs = snapshot.docs.map(doc => doc.data());
       const myCaptures = allDocs.filter(doc => doc.userId === user.uid);
 
-      // --- THE REAL FIREBASE LEADERBOARD ---
+      // the real firebase leaderboard
       const userScores = {};
       const userNames = {}; 
 
-      // --- THE DAILY RESET & PROGRESS RESTORE ---
-      // 1. Get ONLY the animals this user caught TODAY
+      // daily reset and progress restore
+      // 1. get ONLY the animals this user caught TODAY
       const todayString = new Date().toDateString();
       const todaysCaptures = myCaptures.filter(doc => {
         if (!doc.timestamp) return false;
-        // Handle both Firebase Timestamp and native JS Date objects
+        // handle both firebase timestamp and native JS Date objects
         const dateObj = doc.timestamp.toDate ? doc.timestamp.toDate() : new Date(doc.timestamp);
         return dateObj.toDateString() === todayString;
       });
 
-      // 2. Did they claim the bonus today?
+      // 2. did they claim the bonus today?
       const hasClaimedToday = todaysCaptures.some(doc => doc.baseName === "Daily Mission Bonus");
       
       if (hasClaimedToday && !missionCompleted) {
         setMissionCompleted(true);
-        setIsMissionExpanded(false); // Auto-hide the banner if they log in and it's already done!
+        setIsMissionExpanded(false); // auto-hide the banner if they log in and it's already done
       } else if (!hasClaimedToday) {
         setMissionCompleted(false);
       }
 
-      // 3. Restore the 1/1 numbers based on what they caught today!
+      // 3. restore the 1/1 numbers based on what they caught today
       setMissionProgress(todaysCaptures.map(doc => doc.baseName));
 
-      // 1. Loop through every animal ever caught by anyone
+      // 1. loop through every animal ever caught by anyone
       allDocs.forEach(doc => {
         const uid = doc.userId;
         if (!uid) return;
         
-        // 2. Set up their profile in our temporary memory
+        // 2. set up their profile in our temporary memory
         if (!userScores[uid]) {
           userScores[uid] = 0;
           userNames[uid] = doc.userName || `Hunter-${uid.substring(0, 4)}`;
         }
         
-        // 3. Add the points of this catch to their total!
+        // 3. add the points of this catch to their total!
         userScores[uid] += (doc.points || 0); 
       });
 
-      // 4. Convert our memory into a sorted array
+      // 4. convert our memory into a sorted array
       const realRankedPlayers = Object.keys(userScores).map(uid => ({
         id: uid,
         name: userNames[uid], 
@@ -177,9 +177,8 @@ export default function App() {
       })).sort((a, b) => b.score - a.score);
 
       setLeaderboard(realRankedPlayers);
-      // ---------------------------------------------
 
-      // Calculate Global Stats
+      // calculate global stats
       const communityStats = {};
       allDocs.forEach(doc => {
         const bName = doc.baseName ? doc.baseName.toLowerCase() : (doc.name ? doc.name.toLowerCase() : null);
@@ -188,7 +187,7 @@ export default function App() {
         communityStats[bName].add(doc.userId || Math.random().toString());
       });
 
-      // Build the base 50 animals
+      // build the base 50 animals
       const updatedDex = MASTER_ECO_DEX.map(animal => {
         const catchesForThisAnimal = myCaptures.filter(doc => 
           (doc.baseName || doc.name || "").toLowerCase() === animal.name.toLowerCase()
@@ -207,7 +206,7 @@ export default function App() {
         }
       });
 
-      // Handle Dynamic Discoveries
+      // handle dynamic discoveries
       const masterNames = MASTER_ECO_DEX.map(a => a.name.toLowerCase());
       const dynamicDiscoveries = myCaptures
         .filter(doc => !masterNames.includes((doc.baseName || doc.name || "").toLowerCase()) && doc.baseName !== "Daily Mission Bonus")
@@ -236,7 +235,7 @@ export default function App() {
     return () => unsubscribe(); 
   }, [user]);
 
-  // --- GEMINI AI INTEGRATION ---
+  // gemini AI integration
   const analyzeImageWithGemini = async (base64Image) => {
     try {
       const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
@@ -270,7 +269,7 @@ export default function App() {
     }
   };
 
-  // --- CORE MECHANIC: CAPTURE, SCAN & MISSION LOGIC ---
+  // core machanism: capture, scan & mission logic
   const takePictureAndScan = async () => {
     if (cameraRef.current) {
       setIsScanning(true);
@@ -301,11 +300,11 @@ export default function App() {
               userName: currentUserDisplayName
             });
 
-            // --- DAILY MISSION LOGIC (2 Random Targets) ---
-            // Check if the animal they just scanned is one of today's targets
+            // daily mission logic (2 random targets)
+            // check if the animal they just scanned is one of today's targets
             if (!missionCompleted && dailyTargets.includes(bName)) {
               
-              // Make sure they haven't already caught this specific target today
+              // make sure they haven't already caught this specific target today
               if (!missionProgress.includes(bName)) {
                 const updatedProgress = [...missionProgress, bName];
                 setMissionProgress(updatedProgress);
@@ -313,7 +312,7 @@ export default function App() {
                 if (updatedProgress.length >= 2) {
                   setMissionCompleted(true);
                   
-                  // Save the Mission Bonus to Firebase
+                  // save the Mission Bonus to firebase
                   await addDoc(collection(db, "capturedAnimals"), {
                     baseName: "Daily Mission Bonus",
                     specificName: `Found ${dailyTargets[0]} & ${dailyTargets[1]}`,
@@ -346,7 +345,7 @@ export default function App() {
     }
   };
 
-  // --- UI RENDERING ---
+  // UI rendering
   const renderAnimalCard = ({ item }) => {
     const isDynamic = String(item.id).startsWith('new');
     const formattedId = isDynamic ? 'NEW!' : `#${String(item.id).padStart(3, '0')}`;
@@ -387,10 +386,10 @@ export default function App() {
           <Text style={styles.primaryButtonText}>Grant Permission</Text>
         </TouchableOpacity>
       </View>
-    ); // <-- This was missing a closing bracket in your code!
+    ); 
   }
 
-  // Your personal score is drawn directly from the live Firebase leaderboard calculation
+  // personal score is drawn directly from the live Firebase leaderboard calculation
   const myTotalScore = leaderboard.find(player => player.id === user?.uid)?.score || 0;
 
   return (
@@ -400,7 +399,7 @@ export default function App() {
         <Text style={styles.scoreText}>⭐ Score: {myTotalScore}</Text>
       </View>
       
-      {/* --- FLOATING MISSION DROPDOWN (TOP LEFT) --- */}
+      {/* floating mission dropdown */}
       <View style={styles.floatingMissionContainer}>
         <TouchableOpacity 
           style={styles.missionToggleButton} 
@@ -427,7 +426,7 @@ export default function App() {
         )}
       </View>
 
-      {/* --- TAB 1: CAMERA --- */}
+      {/* TAB 1: camera */}
       {activeTab === 'camera' && (
         <View style={styles.cameraContainer}>
           <CameraView style={StyleSheet.absoluteFillObject} facing="back" ref={cameraRef} />
@@ -446,7 +445,7 @@ export default function App() {
         </View>
       )}
 
-      {/* --- TAB 2: ECO-DEX --- */}
+      {/* TAB 2: ECO-DEX */}
       {activeTab === 'ecodex' && (
         <FlatList
           data={database}
@@ -457,7 +456,7 @@ export default function App() {
         />
       )}
 
-      {/* --- TAB 3: LEADERBOARD --- */}
+      {/* TAB 3: Leaderboard */}
       {activeTab === 'leaderboard' && (
         <View style={styles.leaderboardContainer}>
            <Text style={styles.leaderboardTitle}>🏆 Global Rankings</Text>
@@ -478,7 +477,7 @@ export default function App() {
         </View>
       )}
 
-      {/* THE ANIMAL DETAIL MODAL WITH INVENTORY */}
+      {/* the animal detail modal with inventory */}
       <Modal visible={!!selectedAnimal} transparent={true} animationType="slide">
         {selectedAnimal && (
           <View style={styles.modalOverlay}>
@@ -521,7 +520,7 @@ export default function App() {
         )}
       </Modal>
 
-      {/* NAVIGATION BAR */}
+      {/* nav bar */}
       <View style={styles.navBar}>
         <TouchableOpacity style={[styles.navItem, activeTab === 'camera' && styles.navItemActive]} onPress={() => setActiveTab('camera')}>
           <Text style={styles.navText}>Scanner</Text>

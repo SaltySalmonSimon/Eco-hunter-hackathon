@@ -14,11 +14,11 @@ export default function LoginScreen() {
   const handleAuth = async () => {
     try {
       if (isLoginMode) {
-        // --- LOGIN MODE ---
+        // login mode
         await signInWithEmailAndPassword(auth, email, password);
         console.log("Success! Logged in.");
       } else {
-        // --- SIGN UP MODE ---
+        // sign up mode
         if (!username.trim()) {
           alert("Please enter a username for the Leaderboard!");
           return;
@@ -26,7 +26,7 @@ export default function LoginScreen() {
         
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         
-        // 3. The Magic Step: Attach the username to their new Firebase Auth profile
+        // 3. attach the username to their new firebase auth profile
         await updateProfile(userCredential.user, {
           displayName: username
         });
@@ -34,7 +34,7 @@ export default function LoginScreen() {
         console.log("Success! Account created for:", username);
       }
       
-      // Send them to the main camera page
+      // send them to the main camera page
       router.replace('/'); 
     } catch (error) {
       console.error("FIREBASE ERROR:", error.code, error.message);
@@ -46,7 +46,7 @@ export default function LoginScreen() {
     <View style={styles.container}>
       <Text style={styles.headerTitle}>EcoHunter 🦖</Text>
       
-      {/* 4. CONDITIONAL RENDER: Only show Username input if they are making a NEW account */}
+      {/* 4. CONDITIONAL RENDER: only show Username input if they are making a NEW account */}
       {!isLoginMode && (
         <TextInput 
           style={styles.input} 
