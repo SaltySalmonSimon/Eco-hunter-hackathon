@@ -244,15 +244,16 @@ export default function App() {
       const genAI = new GoogleGenerativeAI(apiKey);
       const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-      const prompt = `You are an elite biodiversity app scanner. Identify the primary animal in this photo. 
+      const prompt = `You are an elite biodiversity app scanner. Identify the primary living animal in this photo. 
       
-      If it closely matches one of these common animals, use this exact word for 'base_name': Dog, Cat, Squirrel, Monkey, Rat, Bat, Cow, Horse, Pig, Goat, Sheep, Deer, Bear, Elephant, Tiger, Lion, Rabbit, Bird, Chicken, Duck, Owl, Eagle, Parrot, Penguin, Ostrich, Lizard, Snake, Turtle, Crocodile, Frog, Salamander, Butterfly, Spider, Ant, Bee, Beetle, Fly, Mosquito, Grasshopper, Worm, Snail, Centipede, Fish, Shark, Dolphin, Whale, Crab, Shrimp, Octopus, Jellyfish.
-      
-      If it is NOT on this list, provide its general name for 'base_name' (e.g., 'Pangolin', 'Tapir').
-      If there is no animal, output "None" for base_name.
+      CRITICAL RULES:
+      1. The animal MUST be an extant (currently living) and real species. If the photo contains an extinct animal (e.g., Dinosaur, Mammoth), a mythological creature, or an inanimate toy/statue, output "None" for base_name.
+      2. If it closely matches one of these common animals, use this exact word for 'base_name': Dog, Cat, Squirrel, Monkey, Rat, Bat, Cow, Horse, Pig, Goat, Sheep, Deer, Bear, Elephant, Tiger, Lion, Rabbit, Bird, Chicken, Duck, Owl, Eagle, Parrot, Penguin, Ostrich, Lizard, Snake, Turtle, Crocodile, Frog, Salamander, Butterfly, Spider, Ant, Bee, Beetle, Fly, Mosquito, Grasshopper, Worm, Snail, Centipede, Fish, Shark, Dolphin, Whale, Crab, Shrimp, Octopus, Jellyfish.
+      3. If it is a living animal NOT on this list, provide its general name for 'base_name' (e.g., 'Pangolin', 'Tapir').
+      4. If there is no real, living animal in the photo, output "None" for base_name.
 
       Return the result STRICTLY as a JSON object with four keys: 
-      'base_name' (string: the generic name from the list), 
+      'base_name' (string: the generic name from the list, or "None"), 
       'specific_name' (string: the exact species/breed, e.g., 'Golden Retriever', 'Macaque', 'Monarch Butterfly'),
       'category' (string: Mammal, Reptile, Avian, Insect, Amphibian, Aquatic, or Unknown), 
       'fun_fact' (string: a short 1-sentence fun fact about the specific_name). 
