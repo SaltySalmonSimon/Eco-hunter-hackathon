@@ -333,7 +333,7 @@ export default function App() {
 
         {item.discoveredByCount > 0 ? (
           <View style={styles.communityBadge}>
-            <Text style={styles.communityText}>🌍 Found by {item.discoveredByCount}</Text>
+            <Text style={styles.communityText}>🌍 Found by {item.discoveredByCount} player(s)</Text>
           </View>
         ) : (
           <Text style={[styles.communityText, { color: '#7f8c8d', marginTop: 8 }]}>🌍 Undiscovered</Text>
