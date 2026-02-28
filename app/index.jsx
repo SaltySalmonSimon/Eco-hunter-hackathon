@@ -67,6 +67,12 @@ const MASTER_ECO_DEX = [
   { id: 50, name: 'Jellyfish', category: 'Aquatic', imageUri: 'https://img.icons8.com/color/96/jellyfish.png' }
 ];
 
+const COMMON_ANIMALS = [
+  'Dog', 'Cat', 'Bird', 'Ant', 'Fly', 
+  'Fish', 'Spider', 'Snail', 'Lizard', 
+  'Frog', 'Squirrel', 'Butterfly', 'Beetle', 'Monkey'
+];
+
 export default function App() {
   const router = useRouter();
   const [user, setUser] = useState(null);
@@ -97,14 +103,16 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // 1.5 Generate Today's Random Mission Bounties
+  // 1.5 Generate Today's Random Mission Bounties (Easy Mode!)
   useEffect(() => {
-    // Math trick: Use the day of the year so everyone gets the same targets today!
     const today = new Date();
     const dayOfYear = Math.floor((today - new Date(today.getFullYear(), 0, 0)) / 1000 / 60 / 60 / 24);
     
-    const target1 = MASTER_ECO_DEX[dayOfYear % MASTER_ECO_DEX.length].name;
-    const target2 = MASTER_ECO_DEX[(dayOfYear + 15) % MASTER_ECO_DEX.length].name; // Offset to ensure they are different
+    // Pick from the easy-to-find list instead of the entire Eco-Dex!
+    const target1 = COMMON_ANIMALS[dayOfYear % COMMON_ANIMALS.length];
+    
+    // Use an offset (like +5) to ensure target2 is always a different animal
+    const target2 = COMMON_ANIMALS[(dayOfYear + 5) % COMMON_ANIMALS.length]; 
     
     setDailyTargets([target1, target2]);
   }, []);
