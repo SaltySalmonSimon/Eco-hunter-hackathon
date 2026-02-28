@@ -39,9 +39,9 @@ To run this project locally on your machine, follow these steps:
 
 ### 1. Clone the Repository
 ```bash
-git clone [https://github.com/YOUR-USERNAME/YOUR-REPO-NAME.git](https://github.com/YOUR-USERNAME/YOUR-REPO-NAME.git)
+git clone https://github.com/SaltySalmonSimon/Eco-hunter-hackathon.git
 cd YOUR-REPO-NAME
-
+```
 ### 2. Install Dependencies
 npm install
 
